@@ -1660,6 +1660,10 @@ config SWITCH_DUAL_MODEM
 	bool "Switch UART/USB to AP/CP/CP2"
 	default n
 
+config KNOX_KAP
+       bool "Enable KNOX KAP mode"
+       default n
+
 config TIMA_RKP
        bool "Enable RKP (Realtime Kernel Protection) TIMA feature"
        default n
@@ -1726,7 +1730,7 @@ config TIMA_RKP_KDATA_PROT
 	bool "Protection for kernel data"
 	depends on TIMA_RKP_30
 	depends on TIMA_RKP_L2_TABLES
-	default n
+	default y
 	help
 		Detects double mapping of kernel data.
 
@@ -1734,7 +1738,7 @@ config TIMA_RKP_RO_CRED
 	bool "Protection for cred structure"
 	depends on TIMA_RKP_30
 	depends on TIMA_RKP_L2_TABLES
-	default n
+	default y
 	help
 		Prevents unauthorized cred modification.
 
@@ -1798,5 +1802,9 @@ config SEC_THERMISTOR
         default n
         help
         Use thermistor driver for checking temperature near AP chip.
-        
+
+config SAMSUNG_PRODUCT_SHIP
+        bool "set up for product shipping"
+        default n
+
 endif

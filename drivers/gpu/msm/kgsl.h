@@ -116,7 +116,7 @@ struct kgsl_memdesc;
 struct kgsl_cmdbatch;
 
 struct kgsl_memdesc_ops {
-	int (*vmflags)(struct kgsl_memdesc *);
+	unsigned int vmflags;
 	int (*vmfault)(struct kgsl_memdesc *, struct vm_area_struct *,
 		       struct vm_fault *);
 	void (*free)(struct kgsl_memdesc *memdesc);
@@ -277,6 +277,15 @@ static inline int kgsl_drm_init(struct platform_device *dev)
 static inline void kgsl_drm_exit(void)
 {
 }
+#endif
+
+#if defined (CONFIG_FB_MSM_MDSS_FENCE_DBG)
+void xlog_fence(char *name, char *data0_name, u32 data0,
+				char *data1_name, u32 data1,
+				char *data2_name, u32 data2,
+				char *data3_name, u32 data3,
+				char *data4_name, u32 data4, u32 data5);
+void xlog_fence_dump(void);
 #endif
 
 static inline int kgsl_gpuaddr_in_memdesc(const struct kgsl_memdesc *memdesc,

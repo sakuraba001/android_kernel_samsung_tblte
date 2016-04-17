@@ -25,8 +25,8 @@
 #include <linux/mutex.h>
 #include <linux/android_pmem.h>
 #include <linux/io.h>
-#include <soc/qcom/scm.h>
-//#include <linux/tzcom.h>
+#include <soc/qcom/scm.h> // multiple oemflag
+//#include <mach/scm.h>   // one oemflag => old version
 #include <linux/types.h>
 
 #define TZIC_DEV "tzic"
@@ -60,6 +60,8 @@ typedef struct
 #define TZIC_IOC_MAGIC          0x9E
 #define TZIC_IOCTL_GET_FUSE_REQ _IO(TZIC_IOC_MAGIC, 0)
 #define TZIC_IOCTL_SET_FUSE_REQ _IO(TZIC_IOC_MAGIC, 1)
+
+#define TZIC_IOCTL_SET_FUSE_REQ_DEFAULT _IO(TZIC_IOC_MAGIC, 2)
 
 #define TZIC_IOCTL_GET_FUSE_REQ_NEW _IO(TZIC_IOC_MAGIC, 10)
 #define TZIC_IOCTL_SET_FUSE_REQ_NEW _IO(TZIC_IOC_MAGIC, 11)
@@ -134,6 +136,7 @@ static long tzic_ioctl(struct file *file, unsigned cmd,
 		unsigned long arg)
 {
 	int ret = 0;
+	int i = 0;
 	t_flag param;
 
 	switch(cmd){
@@ -155,6 +158,29 @@ static long tzic_ioctl(struct file *file, unsigned cmd,
 				LOG(KERN_INFO "[oemflag]failed tzic_set_fuse_cmd: %d\n", ret);
 			ret = get_tamper_fuse_cmd();
 			LOG(KERN_INFO "[oemflag]tamper_fuse after = %x\n", ret);
+		break;
+
+		case TZIC_IOCTL_SET_FUSE_REQ_DEFAULT://SET ALL OEM FLAG EXCEPT 0
+			LOG(KERN_INFO "[oemflag]set_fuse_default\n");
+			ret=copy_from_user( &param, (void *)arg, sizeof(param) );
+			if(ret) {
+				LOG(KERN_INFO "[oemflag]ERROR copy from user\n");
+				 return ret;
+			}
+			for (i=OEMFLAG_MIN_FLAG+1;i<OEMFLAG_NUM_OF_FLAG;i++){
+				param.name=i;
+				LOG(KERN_INFO "[oemflag]set_fuse_name : %d\n", param.name);
+				ret = get_tamper_fuse_cmd_new(param.name);
+				LOG(KERN_INFO "[oemflag]tamper_fuse before = %x\n", ret);
+				LOG(KERN_INFO "[oemflag]ioctl set_fuse\n");
+				mutex_lock(&tzic_mutex);
+				ret = set_tamper_fuse_cmd_new(param.name);
+				mutex_unlock(&tzic_mutex);
+				if (ret)
+					LOG(KERN_INFO "[oemflag]failed tzic_set_fuse_cmd: %d\n", ret);
+				ret = get_tamper_fuse_cmd_new(param.name);
+				LOG(KERN_INFO "[oemflag]tamper_fuse after = %x\n", ret);
+			}
 		break;
 
 		case TZIC_IOCTL_GET_FUSE_REQ_NEW:
@@ -282,4 +308,3 @@ MODULE_VERSION("1.00");
 
 module_init(tzic_init);
 module_exit(tzic_exit);
-

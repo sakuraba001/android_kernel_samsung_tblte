@@ -23,6 +23,8 @@
 #include <mach/gpiomux.h>
 #include "esoc.h"
 
+
+#include <mach/sec_debug.h>
 #define MDM_PBLRDY_CNT			20
 #define INVALID_GPIO			(-1)
 #define MDM_GPIO(mdm, i)		(mdm->gpios[i])
@@ -479,6 +481,7 @@ static void mdm_notify(enum esoc_notify notify, struct esoc_clink *esoc)
 	struct mdm_ctrl *mdm = get_esoc_clink_data(esoc);
 	struct device *dev = mdm->dev;
 	int max_spin = 20;
+	int ret;
 
 	switch (notify) {
 	case ESOC_IMG_XFER_DONE:
@@ -555,6 +558,18 @@ static void mdm_notify(enum esoc_notify notify, struct esoc_clink *esoc)
 		mdelay(300);
 		gpio_direction_output(MDM_GPIO(mdm, AP2MDM_SOFT_RESET),
 				!mdm->soft_reset_inverted);
+		break;
+	case ESOC_FORCE_CPCRASH:
+		dev_err(mdm->dev, "Force CP Crash\n");
+		gpio_set_value(MDM_GPIO(mdm, AP2MDM_ERRFATAL), 1);
+		break;
+	case ESOC_DIAG_DISABLE:
+		dev_info(mdm->dev, "Send diag_disable noti\n");
+		ret = sysmon_send_diag_disable_noti(mdm->sysmon_subsys_id);
+		if (ret < 0)
+			dev_err(mdm->dev, "sending diag_disable noti is failed, ret = %d\n", ret);
+		else
+			dev_info(mdm->dev, "sending diag_disable noti is succeed.\n");
 		break;
 	};
 	return;
@@ -744,6 +759,9 @@ static int mdm_configure_ipc(struct mdm_ctrl *mdm, struct platform_device *pdev)
 
 	gpio_direction_output(MDM_GPIO(mdm, AP2MDM_STATUS), 0);
 	gpio_direction_output(MDM_GPIO(mdm, AP2MDM_ERRFATAL), 0);
+
+	if (!sec_debug_is_enabled_for_ssr())
+		gpio_direction_output(MDM_GPIO(mdm, AP2MDM_SOFT_RESET), 0);
 
 	if (gpio_is_valid(MDM_GPIO(mdm, AP2MDM_CHNLRDY)))
 		gpio_direction_output(MDM_GPIO(mdm, AP2MDM_CHNLRDY), 0);

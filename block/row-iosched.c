@@ -792,12 +792,13 @@ static int row_init_queue(struct request_queue *q, struct elevator_type *e)
 {
 
 	struct row_data *rdata;
-	int i;
 	struct elevator_queue *eq;
+	int i;
 
 	eq = elevator_alloc(q, e);
 	if (!eq)
 		return -ENOMEM;
+
 	rdata = kmalloc_node(sizeof(*rdata),
 			     GFP_KERNEL | __GFP_ZERO, q->node);
 	if (!rdata) {
@@ -835,6 +836,7 @@ static int row_init_queue(struct request_queue *q, struct elevator_type *e)
 	rdata->last_served_ioprio_class = IOPRIO_CLASS_NONE;
 	rdata->rd_idle_data.idling_queue_idx = ROWQ_MAX_PRIO;
 	rdata->dispatch_queue = q;
+
 	spin_lock_irq(q->queue_lock);
 	q->elevator = eq;
 	spin_unlock_irq(q->queue_lock);

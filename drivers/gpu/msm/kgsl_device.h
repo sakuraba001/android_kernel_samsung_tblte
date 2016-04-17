@@ -32,13 +32,9 @@
 
 #define FIRST_TIMEOUT (HZ / 2)
 
-#define KGSL_IOCTL_FUNC(_cmd, _func, _flags) \
+#define KGSL_IOCTL_FUNC(_cmd, _func) \
 	[_IOC_NR((_cmd))] = \
-		{ .cmd = (_cmd), .func = (_func), .flags = (_flags) }
-
-#define KGSL_IOCTL_LOCK		BIT(0)
-#define KGSL_IOCTL_WAKE		BIT(1)
-
+		{ .cmd = (_cmd), .func = (_func) }
 
 /* KGSL device state is initialized to INIT when platform_probe		*
  * sucessfully initialized the device.  Once a device has been opened	*
@@ -140,6 +136,8 @@ struct kgsl_functable {
 						uint32_t *flags);
 	int (*drawctxt_detach) (struct kgsl_context *context);
 	void (*drawctxt_destroy) (struct kgsl_context *context);
+	void (*drawctxt_dump) (struct kgsl_device *device,
+		struct kgsl_context *context);
 	long (*ioctl) (struct kgsl_device_private *dev_priv,
 		unsigned int cmd, void *data);
 	long (*compat_ioctl) (struct kgsl_device_private *dev_priv,
@@ -158,7 +156,6 @@ typedef long (*kgsl_ioctl_func_t)(struct kgsl_device_private *,
 struct kgsl_ioctl {
 	unsigned int cmd;
 	kgsl_ioctl_func_t func;
-	unsigned int flags;
 };
 
 long kgsl_ioctl_helper(struct file *filep, unsigned int cmd,
@@ -611,6 +608,8 @@ int kgsl_context_init(struct kgsl_device_private *, struct kgsl_context
 		*context);
 int kgsl_context_detach(struct kgsl_context *context);
 
+void kgsl_context_dump(struct kgsl_context *context);
+
 /**
  * kgsl_context_put() - Release context reference count
  * @context: Pointer to the KGSL context to be released
@@ -728,6 +727,8 @@ static inline struct kgsl_context *kgsl_context_get_owner(
 	return context;
 }
 
+void kgsl_dump_syncpoints(struct kgsl_device *device,
+	struct kgsl_cmdbatch *cmdbatch);
 
 void kgsl_cmdbatch_destroy(struct kgsl_cmdbatch *cmdbatch);
 

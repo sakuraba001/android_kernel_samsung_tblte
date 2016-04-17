@@ -77,10 +77,6 @@
 			status = "disable";
 			/* Charger */
 			battery,charger_name = "max77843-charger";
-			battery,chg_gpio_en = <0>;
-			battery,chg_polarity_en = <0>;
-			battery,chg_gpio_status = <0>;
-			battery,chg_polarity_status = <0>;
 			battery,chg_float_voltage = <4400>;
 			battery,ovp_uvlo_check_type = <3>; /* SEC_BATTERY_OVP_UVLO_CHGPOLLING */
 			battery,full_check_type = <7>; /* SEC_BATTERY_FULLCHARGED_CHGPSY */
@@ -95,7 +91,7 @@
 		max77843-fuelgauge {
 			compatible = "samsung,max77843-fuelgauge";
 			fuelgauge,capacity_max = <990>;
-			fuelgauge,capacity_max_margin = <100>;
+			fuelgauge,capacity_max_margin = <50>;
 			fuelgauge,capacity_min = <0>;
 			fuelgauge,capacity_calculation_type = <0x17>;
 			fuelgauge,fuel_alert_soc = <1>;

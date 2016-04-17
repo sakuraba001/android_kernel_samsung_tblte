@@ -21,6 +21,7 @@
 
 #include "mdss_dsi.h"
 #include "mdss_edp.h"
+#include "mdss_debug.h"
 
 #define SW_RESET BIT(2)
 #define SW_RESET_PLL BIT(0)
@@ -712,9 +713,9 @@ static int mdss_dsi_ulps_config(struct mdss_dsi_ctrl_pdata *ctrl,
 
 	pr_debug("%s: configuring ulps (%s) for ctrl%d, active lanes=0x%08x\n",
 		__func__, (enable ? "on" : "off"), ctrl->ndx, active_lanes);
-
-	xlog(__func__,ctrl->ndx, enable, ctrl->ulps, 0, 0, 0); 
-
+#if defined (CONFIG_FB_MSM_MDSS_DSI_DBG)
+	MDSS_XLOG(ctrl->ndx, enable, ctrl->ulps);
+#endif
 	if (enable && !ctrl->ulps) {
 		/*
 		 * ULPS Entry Request.
@@ -733,16 +734,14 @@ static int mdss_dsi_ulps_config(struct mdss_dsi_ctrl_pdata *ctrl,
 			goto error;
 		}
 
-		wmb();
-
 		ctrl->ulps = true;
 	} else if (!enable && ctrl->ulps) {
 
 		/*
-		* Clear out any phy errors prior to exiting ULPS
-		* This fixes certain instances where phy does not exit
-		* ULPS cleanly.
-		*/
+		 * Clear out any phy errors prior to exiting ULPS
+		 * This fixes certain instances where phy does not exit
+		 * ULPS cleanly.
+		 */
 		mdss_dsi_dln0_phy_err(ctrl);
 
 		/*
@@ -758,9 +757,9 @@ static int mdss_dsi_ulps_config(struct mdss_dsi_ctrl_pdata *ctrl,
 		 * commands not going through. To avoid this, force the lanes
 		 * to be in stop state.
 		 */
-		 MIPI_OUTP(ctrl->ctrl_base + 0x0AC, active_lanes << 16);
+		MIPI_OUTP(ctrl->ctrl_base + 0x0AC, active_lanes << 16);
 
-		 MIPI_OUTP(ctrl->ctrl_base + 0x0AC, 0x0);
+		MIPI_OUTP(ctrl->ctrl_base + 0x0AC, 0x0);
 
 		/*
 		 * Wait for a short duration before enabling
@@ -943,9 +942,14 @@ static int mdss_dsi_core_power_ctrl(struct mdss_dsi_ctrl_pdata *ctrl,
 		if (pdata->panel_info.blank_state == MDSS_PANEL_BLANK_BLANK &&
 				pdata->panel_info.dsi_on_status == false)
 			mdss_dsi_phy_sw_reset(ctrl->ctrl_base);
-
-		mdss_dsi_phy_init(ctrl);
-		mdss_dsi_ctrl_setup(ctrl);
+		/*
+		 * Phy and controller setup need not be done during bootup
+		 * when continuous splash screen is enabled.
+		 */
+		if (!pdata->panel_info.cont_splash_enabled) {
+			mdss_dsi_phy_init(ctrl);
+			mdss_dsi_ctrl_setup(ctrl);
+		}
 
 		if (ctrl->ulps) {
 			/*
@@ -1154,14 +1158,26 @@ int mdss_dsi_clk_ctrl(struct mdss_dsi_ctrl_pdata *ctrl,
 	}
 
 	/*
-	 * In broadcast mode, we need to enable clocks for the
-	 * master controller as well when enabling clocks for the
-	 * slave controller
+	 * In sync_wait_broadcast mode, we need to enable clocks
+	 * for the other controller as well when enabling clocks
+	 * for the trigger controller.
+	 *
+	 * If sync wait_broadcase mode is not enabled, but if split display
+	 * mode is enabled where both DSI controller's branch clocks are
+	 * sourced out of a single PLL, then we need to ensure that the
+	 * controller associated with that PLL also has it's clocks turned
+	 * on. This is required to make sure that if that controller's PLL/PHY
+	 * are clamped then they can be removed.
 	 */
-	if (mdss_dsi_is_slave_ctrl(ctrl)) {
-		mctrl = mdss_dsi_get_master_ctrl();
+	if (mdss_dsi_sync_wait_trigger(ctrl)) {
+		mctrl = mdss_dsi_get_other_ctrl(ctrl);
 		if (!mctrl)
-			pr_warn("%s: Unable to get master control\n", __func__);
+			pr_warn("%s: Unable to get other control\n", __func__);
+	} else if (mdss_dsi_is_ctrl_clk_slave(ctrl)) {
+		mctrl = mdss_dsi_get_ctrl_clk_master();
+		if (!mctrl)
+			pr_warn("%s: Unable to get clk master control\n",
+				__func__);
 	}
 
 	pr_debug("%s++: ndx=%d clk_type=%d bus_clk_cnt=%d link_clk_cnt=%d\n",
@@ -1188,7 +1204,9 @@ int mdss_dsi_clk_ctrl(struct mdss_dsi_ctrl_pdata *ctrl,
 			m_link_changed = __mdss_dsi_update_clk_cnt(
 				&mctrl->link_clk_cnt, enable);
 	}
-	xlog(__func__,ctrl->ndx, enable,bus_changed,m_bus_changed,ctrl->bus_clk_cnt,mctrl?mctrl->bus_clk_cnt:0xbbb); 
+#if defined (CONFIG_FB_MSM_MDSS_DSI_DBG)
+	MDSS_XLOG(ctrl->ndx, enable, bus_changed, m_bus_changed, ctrl->bus_clk_cnt, mctrl?mctrl->bus_clk_cnt:0xbbb);
+#endif
 	if (!link_changed && !bus_changed)
 		goto no_error; /* clk cnts updated, nothing else needed */
 
@@ -1233,7 +1251,7 @@ int mdss_dsi_clk_ctrl(struct mdss_dsi_ctrl_pdata *ctrl,
 	goto no_error;
 
 error_mctrl_stop:
-	mdss_dsi_clk_ctrl_sub(ctrl, clk_type, 0);
+	mdss_dsi_clk_ctrl_sub(ctrl, clk_type, enable ? 0 : 1);
 error_ctrl:
 	if (enable && (m_bus_changed || m_link_changed))
 		mdss_dsi_clk_ctrl_sub(mctrl, clk_type, 0);
@@ -1369,6 +1387,17 @@ void mdss_edp_aux_clk_disable(struct mdss_edp_drv_pdata *edp_drv)
 	clk_disable(edp_drv->mdp_core_clk);
 }
 
+static void mdss_edp_clk_set_rate(struct mdss_edp_drv_pdata *edp_drv)
+{
+	if (clk_set_rate(edp_drv->link_clk, edp_drv->link_rate * 27000000) < 0)
+		pr_err("%s: link_clk - clk_set_rate failed\n",
+					__func__);
+
+	if (clk_set_rate(edp_drv->pixel_clk, edp_drv->pixel_rate) < 0)
+		pr_err("%s: pixel_clk - clk_set_rate failed\n",
+					__func__);
+}
+
 int mdss_edp_clk_enable(struct mdss_edp_drv_pdata *edp_drv)
 {
 	int ret;
@@ -1491,6 +1520,8 @@ void mdss_edp_unprepare_aux_clocks(struct mdss_edp_drv_pdata *edp_drv)
 int mdss_edp_prepare_clocks(struct mdss_edp_drv_pdata *edp_drv)
 {
 	int ret;
+
+	mdss_edp_clk_set_rate(edp_drv);
 
 	/* ahb clock should be prepared first */
 	ret = clk_prepare(edp_drv->ahb_clk);

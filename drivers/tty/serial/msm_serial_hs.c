@@ -74,6 +74,93 @@
 static void *ipc_msm_hs_log_ctxt;
 #define IPC_MSM_HS_LOG_PAGES 30
 
+
+#define _DW_ENABLED
+
+#ifdef _DW_ENABLED
+#define MAX_DUALWAVE_MESSAGE_SIZE 128
+
+#include <linux/syscalls.h>
+#include <asm/uaccess.h>
+
+#define DUALWAVE_INACTIVE	0
+#define DUALWAVE_PLAYBACK	1
+#define DUALWAVE_CAPTURE	2
+
+extern int send_uevent_wh_ble_info(char *prEnvInfoLists[3]);
+extern int checkDualWaveStatus(void);
+
+#define GET_CUR_TIME_ON(tCurTimespec)											\
+	do {																		\
+		long int llErrTime = 0;													\
+		struct timespec tMyTime;												\
+		mm_segment_t tOldfs;													\
+		tOldfs = get_fs();														\
+		set_fs(KERNEL_DS);														\
+																				\
+		llErrTime = sys_clock_gettime(CLOCK_REALTIME, &tMyTime);				\
+		set_fs(tOldfs);															\
+																				\
+		tCurTimespec = tMyTime;													\
+	}while(0)
+
+char *g_szSysTime;
+char *g_szRefTime;	
+
+inline void UpdateTime(char *pchBuffer, int iLen)
+{
+	struct timespec tSysTimespec;
+	char *pEnv[3];
+
+
+	int iRead=0;
+	int iEventLength=0;
+	int iNumHciCmdPackets=0;
+	unsigned short *psCmdOpCode =NULL;
+	int iStatus = 0;
+	unsigned int *puiBtClock;
+
+	GET_CUR_TIME_ON(tSysTimespec);
+
+	g_szSysTime = kzalloc(MAX_DUALWAVE_MESSAGE_SIZE, GFP_KERNEL);
+	g_szRefTime = kzalloc(MAX_DUALWAVE_MESSAGE_SIZE, GFP_KERNEL);
+
+	pEnv[0] = g_szSysTime;
+	pEnv[1] = g_szRefTime;
+	pEnv[2] = NULL;
+
+
+	switch (pchBuffer[iRead++])
+	{
+		case 0x04:
+		{
+			if(pchBuffer[iRead++] == 0x0E)
+			{
+				iEventLength = pchBuffer[iRead++];
+				iNumHciCmdPackets = pchBuffer[iRead++];
+				psCmdOpCode = (short*) (pchBuffer+iRead); iRead += 2;
+				iStatus = pchBuffer[iRead++];
+				puiBtClock = (unsigned int*)(pchBuffer+iRead); iRead +=4;
+				if ( *psCmdOpCode == (unsigned short)0xFCEE && iStatus == 0x00)
+				{
+					sprintf(g_szSysTime,"SYS_TIME=%ld.%09ld",tSysTimespec.tv_sec,tSysTimespec.tv_nsec);
+					sprintf(g_szRefTime,"BT_CLK=%d",*puiBtClock);
+					send_uevent_wh_ble_info(pEnv);
+				}
+			}
+		}
+		break;
+		default:
+		break;
+	}
+
+	kfree(g_szSysTime);
+	kfree(g_szRefTime);
+
+}
+
+#endif
+
 /* If the debug_mask gets set to FATAL_LEV,
  * a fatal error has happened and further IPC logging
  * is disabled so that this problem can be detected
@@ -406,6 +493,8 @@ static void msm_hs_clock_unvote(struct msm_hs_port *msm_uport)
 		msm_hs_bus_voting(msm_uport, BUS_RESET);
 		msm_uport->clk_state = MSM_HS_CLK_OFF;
 		MSM_HS_DBG("%s: Clock OFF successful\n", __func__);
+
+		printk(KERN_ERR "(msm_serial_hs) Clock OFF successful\n");
 	}
 	mutex_unlock(&msm_uport->clk_mutex);
 }
@@ -1535,6 +1624,14 @@ static void msm_serial_hs_rx_tlet(unsigned long tlet_ptr)
 			msm_uport->rx.buffer_pending |= CHARS_NORMAL |
 				retval << 5 | (rx_count - retval) << 16;
 		}
+	#ifdef _DW_ENABLED
+		else
+		{
+			if (checkDualWaveStatus() != DUALWAVE_INACTIVE) {
+				UpdateTime(msm_uport->rx.buffer, rx_count);
+			}
+		}
+	#endif
 	}
 	if (!msm_uport->rx.buffer_pending && !msm_uport->rx.rx_cmd_queued) {
 		msm_uport->rx.flush = FLUSH_NONE;
@@ -1725,7 +1822,7 @@ void msm_hs_set_mctrl_locked(struct uart_port *uport,
 
 	if (msm_uport->clk_state != MSM_HS_CLK_ON) {
 		MSM_HS_WARN("%s:Failed.Clocks are OFF\n", __func__);
-		printk(KERN_INFO "(msm_serial_hs) msm_hs_set_mctrl_locked.Clocks are OFF\n");
+		printk(KERN_ERR "(msm_serial_hs) msm_hs_set_mctrl_locked.Clocks are OFF\n");
 		return;
 	}
 	/* RTS is active low */
@@ -1928,7 +2025,7 @@ static int msm_hs_check_clock_off(struct uart_port *uport)
 	disable_irq(uport->irq);
 
 	if (pdev->id == 0)
-		printk(KERN_INFO "(msm_serial_hs) msm_hs_check_clock_off - dma wake unlock\n");
+		printk(KERN_ERR "(msm_serial_hs) msm_hs_check_clock_off - dma wake unlock\n");
 
 	wake_unlock(&msm_uport->dma_wake_lock);
 
@@ -1954,10 +2051,10 @@ static void hsuart_clock_off_work(struct work_struct *w)
 				HRTIMER_MODE_REL);
 	} else if (check_clk_off == -1) {
 		if (pdev->id == 0)
-			printk(KERN_INFO "(msm_serial_hs) hsuart_clock_off_work WORKQUEUE - FIFO is not empty or in flight...\n");
+			printk(KERN_ERR "(msm_serial_hs) hsuart_clock_off_work WORKQUEUE - FIFO is not empty or in flight...\n");
 	} else {
 		if (pdev->id == 0)
-			printk(KERN_INFO "(msm_serial_hs) hsuart_clock_off_work WORKQUEUE - Maybe, clock is off-ed.\n");
+			printk(KERN_ERR "(msm_serial_hs) hsuart_clock_off_work WORKQUEUE - Maybe, clock is off-ed.\n");
 	}
 }
 
@@ -2125,7 +2222,16 @@ void msm_hs_request_clock_on(struct uart_port *uport)
 	unsigned int data;
 	int ret = 0;
     struct platform_device *pdev = to_platform_device(uport->dev);
+    int cur_clk_state;
 
+    /*
+        * cancel the hrtimer first so that
+        * clk_state can not change in flight
+        */
+    hrtimer_cancel(&msm_uport->clk_off_timer);
+    flush_work(&msm_uport->clock_off_w);
+    cur_clk_state = msm_uport->clk_state;
+    msm_hs_clock_vote(msm_uport);
 	mutex_lock(&msm_uport->clk_mutex);
 	spin_lock_irqsave(&uport->lock, flags);
 
@@ -2141,10 +2247,14 @@ void msm_hs_request_clock_on(struct uart_port *uport)
 	}
 #endif
 
-	switch (msm_uport->clk_state) {
+    if (cur_clk_state == MSM_HS_CLK_REQUEST_OFF) {
+        msm_uport->clk_state = MSM_HS_CLK_ON;
+    }
+
+	switch (cur_clk_state) {
 	case MSM_HS_CLK_OFF:
 		if (pdev->id == 0)
-			printk(KERN_INFO "(msm_serial_hs) msm_hs_check_clock_on - dma wake lock\n");
+			printk(KERN_ERR "(msm_serial_hs) msm_hs_check_clock_on - dma wake lock\n");
 
 		wake_lock(&msm_uport->dma_wake_lock);
 
@@ -2156,6 +2266,7 @@ void msm_hs_request_clock_on(struct uart_port *uport)
 		mutex_unlock(&msm_uport->clk_mutex);
 		ret = msm_hs_clock_vote(msm_uport);
 		mutex_lock(&msm_uport->clk_mutex);
+		spin_lock_irqsave(&uport->lock, flags);
 		if (ret) {
 			MSM_HS_INFO("Clock ON Failure"
 			"For UART CLK Stalling HSUART\n");
@@ -2165,10 +2276,8 @@ void msm_hs_request_clock_on(struct uart_port *uport)
 		/* uport-irq was disabled when clocked off */
 		enable_irq(uport->irq);
 
-		spin_lock_irqsave(&uport->lock, flags);
 		/* else fall-through */
 	case MSM_HS_CLK_REQUEST_OFF:
-		hrtimer_cancel(&msm_uport->clk_off_timer);
 		if (msm_uport->rx.flush == FLUSH_STOP) {
 			spin_unlock_irqrestore(&uport->lock, flags);
 			MSM_HS_DBG("%s:Calling wait forxcompletion\n",
@@ -2184,8 +2293,6 @@ void msm_hs_request_clock_on(struct uart_port *uport)
 		}
 		MSM_HS_DBG("%s:clock state %d\n\n", __func__,
 				msm_uport->clk_state);
-		if (msm_uport->clk_state == MSM_HS_CLK_REQUEST_OFF)
-				msm_uport->clk_state = MSM_HS_CLK_ON;
 		if (msm_uport->rx.flush == FLUSH_STOP ||
 		    msm_uport->rx.flush == FLUSH_SHUTDOWN) {
 			msm_hs_write(uport, UART_DM_CR, RESET_RX);
@@ -2218,6 +2325,7 @@ void msm_hs_request_clock_on(struct uart_port *uport)
 	dump_uart_hs_registers(msm_uport);
 	spin_unlock_irqrestore(&uport->lock, flags);
 	mutex_unlock(&msm_uport->clk_mutex);
+    msm_hs_clock_unvote(msm_uport);
 }
 EXPORT_SYMBOL(msm_hs_request_clock_on);
 
@@ -2228,6 +2336,14 @@ int msm_hs_get_clock_state(struct uart_port *uport)
 	return (int)msm_uport->clk_state;
 }
 EXPORT_SYMBOL(msm_hs_get_clock_state);
+
+int msm_hs_get_clock_count(struct uart_port *uport)
+{
+	struct msm_hs_port *msm_uport = UARTDM_TO_MSM(uport);
+
+	return atomic_read(&msm_uport->clk_count);
+}
+EXPORT_SYMBOL(msm_hs_get_clock_count);
 
 static irqreturn_t msm_hs_wakeup_isr(int irq, void *dev)
 {
@@ -2447,7 +2563,7 @@ static int msm_hs_startup(struct uart_port *uport)
 				      DMA_TO_DEVICE);
 
     if (pdev->id == 0)
-        printk(KERN_INFO "(msm_serial_hs) msm_hs_startup - dma wake lock\n");
+        printk(KERN_ERR "(msm_serial_hs) msm_hs_startup - dma wake lock\n");
 
 	wake_lock(&msm_uport->dma_wake_lock);
 	/* turn on uart clk */
@@ -2586,7 +2702,7 @@ deinit_uart_clk:
 	msm_hs_clock_unvote(msm_uport);
 
 	if (pdev->id == 0)
-		printk(KERN_INFO "(msm_serial_hs) msm_hs_startup deinit clk - dma wake unlock\n");
+		printk(KERN_ERR "(msm_serial_hs) msm_hs_startup deinit clk - dma wake unlock\n");
 
 	wake_unlock(&msm_uport->dma_wake_lock);
 
@@ -3271,7 +3387,7 @@ static void msm_hs_shutdown(struct uart_port *uport)
 	struct platform_device *pdev = to_platform_device(uport->dev);
 
 	if (pdev->id == 0)
-		printk(KERN_INFO "(msm_serial_hs) msm_hs_shutdown\n");
+		printk(KERN_ERR "(msm_serial_hs) msm_hs_shutdown\n");
 
 	/*
 	 * cancel the hrtimer first so that

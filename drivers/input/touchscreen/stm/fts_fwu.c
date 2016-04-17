@@ -224,6 +224,9 @@ static void fts_enable_custom_library(struct fts_ts_info *info)
 {
 	unsigned char EnableCLIB[4] = {0xB0, 0x01, 0x10, 0x77};
 
+#ifdef CONFIG_SEC_TBLTE_PROJECT
+	EnableCLIB[3] =  0x7D;
+#endif
 	tsp_debug_info(true, info->dev, "%s\n", __func__);
 
 	info->fts_write_reg(info, &EnableCLIB[0], 4);
@@ -231,21 +234,19 @@ static void fts_enable_custom_library(struct fts_ts_info *info)
 static void fts_check_custom_library(struct fts_ts_info *info)
 {
 	int rc;
-	unsigned char regAdd[3];
+	unsigned char regAdd[3] = {0xd0, 0x00, 0x50};
 	unsigned char buf[3];
+	unsigned char ver=0;
 
-	regAdd[0] = 0xb3;
-	regAdd[1] = 0x00;
-	regAdd[2] = 0x10;
-	info->fts_write_reg(info, regAdd, 3);
-
-	regAdd[0] = 0xb1;
-	regAdd[1] = 0x04;
-	regAdd[2] = 0xd4;
 	rc = info->fts_read_reg(info, regAdd, 3, buf, 2);
+	//ver=buf[0]; // S LTE
+	ver=buf[1];	// T LTE
 
-	tsp_debug_info(true, info->dev, "%s, CHN==%d\n", __func__, buf[1]);
-	if (buf[1]==0) {
+	tsp_debug_info(true, info->dev, "%s, CHN on =%d\n", __func__, ver);
+
+	if (rc < 0) {
+		tsp_debug_info(true, info->dev, "%s, read fail,%d\n", __func__, rc);
+	}else if (ver==0) {
 		fts_enable_custom_library(info);
 		info->fts_command(info, FTS_CMD_SAVE_FWCONFIG);
 		msleep(300);
@@ -403,6 +404,35 @@ out:
 	return false;
 }
 
+#ifdef CONFIG_SEC_TBLTE_PROJECT
+static unsigned char fts_get_sync_register(struct fts_ts_info *info)
+{
+	unsigned char regAdd[4] = { 0xb2, 0x07, 0x0a, 0x04 };
+	unsigned char data[FTS_EVENT_SIZE];
+	int retry = 0;
+	unsigned char val = 0;
+
+	info->fts_write_reg(info, &regAdd[0], 4);
+
+	memset(data, 0x0, FTS_EVENT_SIZE);
+	regAdd[0] = READ_ONE_EVENT;
+
+	while (info->fts_read_reg(info, &regAdd[0], 1, (unsigned char *)data, FTS_EVENT_SIZE)) {
+		if ((data[0] == 0x12) && (data[1] == regAdd[1]) && (data[2] == regAdd[2])) {
+			val = data[3];
+			tsp_debug_info(true, info->dev,"%s: Sync Register : 0x%02x\n",__func__, val);
+			break;
+		}
+
+		if (retry++ > FTS_RETRY_COUNT) {
+			tsp_debug_err(true, info->dev,"%s: Time Over\n", __func__);
+			break;
+		}
+	}
+	return val;
+}
+#endif 
+
 extern unsigned int system_rev;
 int fts_fw_update_on_probe(struct fts_ts_info *info)
 {
@@ -516,10 +546,17 @@ int fts_fw_update_on_probe(struct fts_ts_info *info)
 		// check core + config + main 
 		if ((info->fw_main_version_of_ic < info->fw_main_version_of_bin)
 			|| (info->config_version_of_ic < info->config_version_of_bin)
-			|| (info->fw_version_of_ic < info->fw_version_of_bin))
+			|| (info->fw_version_of_ic < info->fw_version_of_bin)) {
 			retval = fts_fw_updater(info, fw_data);
-		else
-			retval = FTS_NOT_ERROR;
+		
+		} else {
+			if (fts_get_sync_register(info) != 0x51) {
+				tsp_debug_info(true, info->dev,"sync reg is not 0x51, so firmup\n");
+				retval = fts_fw_updater(info, fw_data);
+			} else {
+				retval = FTS_NOT_ERROR;
+			}
+		}
 	}
 #else
         // check core + config + main 

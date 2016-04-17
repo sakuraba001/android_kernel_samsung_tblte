@@ -31,6 +31,8 @@ ifeq ($(BUS_IFACE_SDIO),y)
 	DHDCFLAGS += -DDHD_USE_IDLECOUNT
 	# SKB TAILPAD to avoid out of boundary memory access
 	DHDCFLAGS += -DDHDENABLE_TAILPAD
+	# Enable PROP_TXSTATUS
+	DHDCFLAGS += -DPROP_TXSTATUS
 	DHDCFLAGS += -DSUPPORT_P2P_GO_PS
 endif
 
@@ -49,8 +51,8 @@ ifeq ($(BUS_IFACE_PCIE),y)
 	# Debugging Pagealloc
 #	DHDCFLAGS += -DDHD_DEBUG_PAGEALLOC
 #endif
-	# log both directions control rings
-#	DHDCFLAGS += -DCTRLRING_LOGGING
+	# Enable packet audit at host side
+	DHDCFLAGS += -DDHD_PKTID_AUDIT_ENABLED
 endif
 
 
@@ -75,7 +77,6 @@ DHDCFLAGS += -DDHD_8021X_DUMP
 DHDCFLAGS += -DDHD_DHCP_DUMP
 
 # VSDB
-DHDCFLAGS += -DPROP_TXSTATUS
 DHDCFLAGS += -DVSDB
 
 # Wi-Fi Direct
@@ -93,8 +94,7 @@ DHDCFLAGS += -DCUSTOM_TDLS_RSSI_THRESHOLD_LOW=-85
 DHDCFLAGS += -DROAM_AP_ENV_DETECTION
 DHDCFLAGS += -DROAM_ENABLE -DROAM_CHANNEL_CACHE -DROAM_API
 DHDCFLAGS += -DENABLE_FW_ROAM_SUSPEND
-
-DHDCFLAGS += -DDISABLE_ROAM_OFFLOAD
+DHDCFLAGS += -DDHD_LOSSLESS_ROAMING
 
 # CCX
 ifeq ($(CONFIG_BRCM_CCX),y)
@@ -111,6 +111,7 @@ DHDCFLAGS += -DSUPPORT_PM2_ONLY
 DHDCFLAGS += -DSUPPORT_DEEP_SLEEP
 DHDCFLAGS += -DSUPPORT_AMPDU_MPDU_CMD
 DHDCFLAGS += -DBLOCK_IPV6_PACKET -DPASS_IPV4_SUSPEND
+DHDCFLAGS += -DSOFTAP_SEND_HANGEVT
 
 # For special PNO Event keep wake lock for 10sec
 DHDCFLAGS += -DCUSTOM_PNO_EVENT_LOCK_xTIME=10
@@ -134,6 +135,10 @@ ifeq ($(CONFIG_BROADCOM_WIFI_RESERVED_MEM),y)
   DHDCFLAGS += -DCONFIG_DHD_USE_STATIC_BUF
   DHDCFLAGS += -DENHANCED_STATIC_BUF
   DHDCFLAGS += -DSTATIC_WL_PRIV_STRUCT
+ifeq ($(BUS_IFACE_PCIE),y)
+  # Use preallocated IOCTL and EVENT buffer
+  DHDCFLAGS += -DDHD_USE_STATIC_CTRLBUF
+endif
 ifeq ($(CONFIG_BCMDHD_DEBUG_PAGEALLOC),y)
 # Preallocation for memory dump
   DHDCFLAGS += -DUSE_STATIC_MEMDUMP
@@ -160,6 +165,15 @@ DHDCFLAGS += -DCONFIG_HAS_WAKELOCK
 
 # Used short dwell time during initial scan
 DHDCFLAGS += -DUSE_INITIAL_SHORT_DWELL_TIME
+
+# Japan ccode revision will be fixed by nvram's value
+DHDCFLAGS += -DKEEP_JP_REGREV
+
+# NAN feature
+ifeq ($(CONFIG_WL_NAN),y)
+DHDCFLAGS += -DWL_NAN
+endif
+
 
 ##############################
 # Android Platform Definition
@@ -201,7 +215,6 @@ ifneq ($(CONFIG_BCM4358),)
 # tput enhancement for common
   DHDCFLAGS += -DUSE_WL_TXBF
   DHDCFLAGS += -DUSE_WL_FRAMEBURST
-  DHDCFLAGS += -DPROP_TXSTATUS_VSDB
   DHDCFLAGS += -DDISABLE_FRAMEBURST_VSDB
   DHDCFLAGS += -DDISABLE_PM_BCNRX
 
@@ -221,6 +234,7 @@ ifeq ($(BUS_IFACE_SDIO),y)
   DHDCFLAGS += -DDHD_FIRSTREAD=128
   DHDCFLAGS += -DCUSTOM_AMPDU_MPDU=16
   DHDCFLAGS += -DDHDTCPACK_SUPPRESS
+  DHDCFLAGS += -DPROP_TXSTATUS_VSDB
 endif
 
 # tput enhancement for PCIE
@@ -229,14 +243,16 @@ ifeq ($(BUS_IFACE_PCIE),y)
   DHDCFLAGS += -DCUSTOM_AMPDU_MPDU=32
   DHDCFLAGS += -DCUSTOM_AMPDU_RELEASE=16
   DHDCFLAGS += -DCUSTOM_AMSDU_AGGSF=4
+# DHDCFLAGS += -DDHDTCPACK_SUPPRESS
 endif
 
 ifeq ($(CONFIG_ARCH_MSM),y)
   DHDCFLAGS += -DSET_RPS_CPUS
+# DHDCFLAGS := $(filter-out -DDHDTCPACK_SUPPRESS,$(DHDCFLAGS))
 endif
 
 # New Features
-  DHDCFLAGS += -DWL11U
+  DHDCFLAGS += -DWL11U -DMFP
   DHDCFLAGS += -DBCMCCX
   DHDCFLAGS += -DWES_SUPPORT
   DHDCFLAGS += -DOKC_SUPPORT
@@ -267,7 +283,6 @@ ifneq ($(CONFIG_BCM4354),)
 # tput enhancement for common
   DHDCFLAGS += -DUSE_WL_TXBF
   DHDCFLAGS += -DUSE_WL_FRAMEBURST
-  DHDCFLAGS += -DPROP_TXSTATUS_VSDB
 
 # tput enhancement for SDIO
 ifeq ($(BUS_IFACE_SDIO),y)
@@ -285,6 +300,7 @@ ifeq ($(BUS_IFACE_SDIO),y)
   DHDCFLAGS += -DDHD_FIRSTREAD=128
   DHDCFLAGS += -DCUSTOM_AMPDU_MPDU=16
   DHDCFLAGS += -DDHDTCPACK_SUPPRESS
+  DHDCFLAGS += -DPROP_TXSTATUS_VSDB
 endif
 
 # tput enhancement for PCIE
@@ -296,7 +312,7 @@ endif
 
 
 # New Features
-  DHDCFLAGS += -DWL11U
+  DHDCFLAGS += -DWL11U -DMFP
   DHDCFLAGS += -DBCMCCX
   DHDCFLAGS += -DWES_SUPPORT
   DHDCFLAGS += -DOKC_SUPPORT
@@ -559,12 +575,13 @@ DHDOFILES := dhd_pno.o dhd_common.o dhd_ip.o dhd_custom_gpio.o dhd_custom_sec.o 
 	bcmutils.o bcmwifi_channels.o hndpmu.o linux_osl.o sbutils.o siutils.o \
 	wl_android.o wl_cfg80211.o wl_cfgp2p.o wl_cfg_btcoex.o wldev_common.o \
 	wl_linux_mon.o wl_roam.o dhd_linux_platdev.o dhd_linux_wq.o wl_cfg_btcoex.o \
-	dhd_wlfc.o hnd_pktq.o hnd_pktpool.o wl_cfgnan.o bcmxtlv.o
+	hnd_pktq.o hnd_pktpool.o
 
 
 ifeq ($(BUS_IFACE_SDIO),y)
 DHDOFILES += bcmsdh.o bcmsdh_linux.o bcmsdh_sdmmc.o bcmsdh_sdmmc_linux.o
 DHDOFILES += dhd_cdc.o dhd_sdio.o
+DHDOFILES += dhd_wlfc.o
 endif
 
 ifeq ($(BUS_IFACE_PCIE),y)
@@ -576,6 +593,11 @@ ifeq ($(CONFIG_SPI_SC8810),y)
 DHDOFILES += bcmsdspi_linux.o bcmspibrcm.o
 DHDOFILES :=$(filter-out bcmsdh_sdmmc.o,$(DHDOFILES))
 DHDOFILES :=$(filter-out bcmsdh_sdmmc_linux.o,$(DHDOFILES))
+endif
+
+# NAN feature
+ifeq ($(CONFIG_WL_NAN),y)
+DHDOFILES += wl_cfgnan.o bcmxtlv.o
 endif
 
 dhd-y := $(DHDOFILES)

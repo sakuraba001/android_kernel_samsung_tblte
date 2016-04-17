@@ -466,10 +466,16 @@ void w1_irqwork(struct work_struct *irqwork)
 
 static irqreturn_t w1_detect_irq(int irq, void *dev_id)
 {
+#if !defined(CONFIG_SEC_FACTORY)
 	struct w1_bus_master *dev = dev_id;
 
 	pr_info("%s : Inside W1 IRQ Handler\n", __func__);
+	cancel_delayed_work_sync(&w1_gdev->w1_dwork);
 	schedule_delayed_work(&dev->w1_irqwork, 100);
+	schedule_delayed_work(&dev->w1_irqwork, 1000);
+#else
+	pr_info("%s : Inside W1 IRQ Handler but Factory binary, do nothing here.\n", __func__);
+#endif
 	return IRQ_HANDLED;
 }
 

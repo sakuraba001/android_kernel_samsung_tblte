@@ -673,7 +673,7 @@ static int mdss_dsi_set_col_page_addr(struct mdss_panel_data *pdata)
 			/* no new frame update */
 			pr_err("%s: ctrl=%d, no partial roi set\n",
 						__func__, ctrl->ndx);
-			if (!mdss_dsi_broadcast_mode_enabled())
+			if (!mdss_dsi_sync_wait_enable(ctrl))
 				return 0;
 		}
 
@@ -681,7 +681,7 @@ static int mdss_dsi_set_col_page_addr(struct mdss_panel_data *pdata)
 				__func__, ctrl->ndx, roi.x,
 				roi.y, roi.w, roi.h);
 
-		if (pinfo->partial_update_dcs_cmd_by_left) {
+		if (pinfo->dcs_cmd_by_left) {
 			if (left_or_both && ctrl->ndx == DSI_CTRL_RIGHT) {
 				/* 2A/2B sent by left already */
 			pr_err("%s: ctrl=%d, sned-by-left\n",
@@ -717,9 +717,9 @@ static int mdss_dsi_set_col_page_addr(struct mdss_panel_data *pdata)
 		cmdreq.rlen = 0;
 		cmdreq.cb = NULL;
 
-		if (pinfo->partial_update_dcs_cmd_by_left)
+		if (pinfo->dcs_cmd_by_left)
 			ctrl = mdss_dsi_get_ctrl_by_index(DSI_CTRL_LEFT);
-		else if(mdss_dsi_broadcast_mode_enabled())
+		else if(mdss_dsi_sync_wait_enable(ctrl))
 			ctrl = mdss_dsi_get_ctrl_by_index(DSI_CTRL_RIGHT);
 
 		mdss_dsi_cmdlist_put(ctrl, &cmdreq);
@@ -1500,7 +1500,7 @@ static void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 	mutex_lock(&msd.lock);
 
 	pinfo = &(ctrl->panel_data.panel_info);
-	if (pinfo->partial_update_dcs_cmd_by_left) {
+	if (pinfo->dcs_cmd_by_left) {
 		if (ctrl->ndx != DSI_CTRL_LEFT) {
 			mutex_unlock(&msd.lock);
 			return;
@@ -2372,7 +2372,7 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	pr_debug("mdss_dsi_panel_on DSI_MODE = %d ++\n",msd.pdata->panel_info.mipi.mode);
 	pr_info("%s: ctrl=%p ndx=%d\n", __func__, ctrl, ctrl->ndx);
 
-	if (ctrl->shared_pdata.broadcast_enable) {
+	if (mdss_dsi_sync_wait_enable(ctrl)) {
 		if (ctrl->ndx == DSI_CTRL_0) {
 #if defined(CONFIG_LCD_RECOVERY)
 			pdata_dsi0 = &ctrl->panel_data;
@@ -2568,7 +2568,7 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 
 	pr_info("%s: ctrl=%p ndx=%d\n", __func__, ctrl, ctrl->ndx);
 
-	if (ctrl->shared_pdata.broadcast_enable) {
+	if (mdss_dsi_sync_wait_enable(ctrl)) {
 		if (ctrl->ndx == DSI_CTRL_0) {
 			pr_info("%s: Broadcast mode. 1st ctrl(0). return..\n",__func__);
 			goto end;
@@ -5098,10 +5098,13 @@ void lcd_refresh_work_func(struct work_struct *work)
 {
 	struct msm_fb_data_type *mfd = msd.mfd;
 	struct mdss_panel_data *pdata = msd.pdata;
+	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
 
 	char *envp[2] = {"PANEL_ALIVE=0", NULL};
 	struct device *dev = msd.mfd->fbi->dev;
 
+	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+				panel_data);
 
 	pr_info("%s+ oled_det(%d)\n", __func__, gpio_get_value(oled_det_gpio));
 #if defined(CONFIG_LCD_RECOVERY_ERR_FG)
@@ -5113,15 +5116,13 @@ void lcd_refresh_work_func(struct work_struct *work)
 	}
 
 	if (mdss_fb_is_power_on(mfd)) {
-
 		if (pdata->panel_info.type == MIPI_CMD_PANEL){
-			if(mdss_dsi_broadcast_mode_enabled()){
+			if(mdss_dsi_sync_wait_enable(ctrl)){
 				pdata_dsi0->panel_info.panel_dead = true;
 				pdata_dsi1->panel_info.panel_dead = true;
 			}else
 				pdata->panel_info.panel_dead = true;
 		}
-
 		kobject_uevent_env(&dev->kobj, KOBJ_CHANGE, envp);
 		pr_err("Panel has gone bad, sending uevent - %s\n", envp[0]);
 	}
@@ -5631,14 +5632,14 @@ int mdss_dsi_panel_init(struct device_node *node, struct mdss_dsi_ctrl_pdata *ct
 		else
 			ctrl_pdata->set_col_page_addr = mdss_dsi_set_col_page_addr;
 
-		ctrl_pdata->panel_data.panel_info.partial_update_dcs_cmd_by_left =
-					of_property_read_bool(node, "qcom,partial-update-dcs-cmd-by-left");
+		ctrl_pdata->panel_data.panel_info.dcs_cmd_by_left =
+					of_property_read_bool(node, "qcom,dcs-cmd-by-left");
 		ctrl_pdata->panel_data.panel_info.partial_update_roi_merge =
 					of_property_read_bool(node, "qcom,partial-update-roi-merge");
 	} else {
 		pr_info("%s:%d Partial update disabled.\n", __func__, __LINE__);
 		ctrl_pdata->panel_data.panel_info.partial_update_enabled = 0;
-		ctrl_pdata->panel_data.panel_info.partial_update_dcs_cmd_by_left = 0;
+		ctrl_pdata->panel_data.panel_info.dcs_cmd_by_left = 0;
 		ctrl_pdata->panel_data.panel_info.partial_update_roi_merge = 0;
 		ctrl_pdata->set_col_page_addr = NULL;
 	}

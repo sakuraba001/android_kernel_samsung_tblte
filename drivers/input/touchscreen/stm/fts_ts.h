@@ -60,6 +60,7 @@
 #ifdef CONFIG_SEC_TBLTE_PROJECT
 #define FTS_FIRMWARE_NAME				"tsp_stm/stm_tb.fw"
 #define FTS_MODEL_CONFIG_NAME				"N915"
+#define TSP_RUN_AUTOTUNE_DEFAULT
 #else
 #define FTS_FIRMWARE_NAME				"tsp_stm/stm_tr.fw"
 #define FTS_MODEL_CONFIG_NAME				"N910"
@@ -253,6 +254,8 @@
 #define TSP_RAWDATA_DUMP
 #endif
 
+#define FTS_ADDED_RESETCODE_IN_LPLM		//all TB, TR chn for lpm mode.
+
 #ifdef FTS_SUPPORT_TOUCH_KEY
 #define KEY_PRESS		1
 #define KEY_RELEASE		0
@@ -365,13 +368,26 @@ enum tsp_power_mode {
 	TSP_LOWPOWER_MODE,
 };
 
+enum fts_cover_id {
+	FTS_FLIP_WALLET = 0,
+	FTS_VIEW_COVER,
+	FTS_COVER_NOTHING1,
+	FTS_VIEW_WIRELESS,
+	FTS_COVER_NOTHING2,
+	FTS_CHARGER_COVER,
+	FTS_VIEW_WALLET,
+	FTS_LED_COVER,
+	FTS_MONTBLANC_COVER = 100,
+};
+
 enum fts_customer_feature {
 	FTS_FEATURE_ORIENTATION_GESTURE = 1,
 	FTS_FEATURE_STYLUS,
 	FTS_FEATURE_QUICK_SHORT_CAMERA_ACCESS,
 	FTS_FEATURE_SIDE_GUSTURE,
 	FTS_FEATURE_COVER_GLASS,
-	FTS_FEATURE_FAST_GLOVE_MODE,
+	FTS_FEATURE_COVER_WALLET,
+	FTS_FEATURE_COVER_LED,
 };
 
 struct fts_ts_info {
@@ -418,7 +434,7 @@ struct fts_ts_info {
 	short *pFrame;
 	unsigned char *cx_data;
 	struct delayed_work cover_cmd_work;
-	int delayed_cmd_param;
+	int delayed_cmd_param[2];
 #endif
 
 	bool hover_ready;
@@ -426,12 +442,16 @@ struct fts_ts_info {
 	bool mshover_enabled;
 	bool fast_mshover_enabled;
 	bool flip_enable;
+	bool flip_state;
+	bool run_autotune;
 	bool mainscr_disable;
 
 	unsigned char lowpower_flag;
 	bool lowpower_mode;
 	bool deepsleep_mode;
 	int fts_power_mode;
+	int cover_type;
+	bool edge_grip_mode;
 
 	unsigned char fts_mode;
 	int fts_pm_state;
@@ -539,11 +559,11 @@ struct fts_ts_info {
 int fts_fw_update_on_probe(struct fts_ts_info *info);
 int fts_fw_update_on_hidden_menu(struct fts_ts_info *info, int update_type);
 void fts_fw_init(struct fts_ts_info *info);
-
-/* get_lcd_id : return lcd_id, 3bytes, id1, id2, id3, from command line
+void fts_release_all_finger(struct fts_ts_info *info);
+/* get_lcd_attached : return lcd_id, 3bytes, id1, id2, id3, from command line
  * get_samsung_lcd_attached : return lcd attched or detached
  */
-extern int get_lcd_id(void);
+extern int get_lcd_attached(char *mode);
 extern int get_samsung_lcd_attached(void);
 
 /*

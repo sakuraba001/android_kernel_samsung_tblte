@@ -151,6 +151,7 @@ spinlock_t ro_pages_lock = __SPIN_LOCK_UNLOCKED();
 /* First Page is allocated for init_credential */
 char ro_pages_stat[1 << RO_PAGES_ORDER] = { 1 };
 
+#if 0
 /* Test Code: To be removed*/
 /* Lets calculate whether we consume more than 1MB */
 void rkp_calc_max_threshold(void)
@@ -163,6 +164,7 @@ void rkp_calc_max_threshold(void)
 		if(sum > 256 )
 				panic(" Consuming more than 1M ");
 }
+#endif
 
 /* Main Routine for allocating Read-Only Cred Pages*/
 struct page *alloc_ro_pages(int order)
@@ -186,8 +188,10 @@ struct page *alloc_ro_pages(int order)
 			ro_pages_stat[i + j] = 1;
 		printk(KERN_ERR"RKP RO CRED ALLOC -> order %x, %lx\n", order, ((unsigned long) __rkp_ro_start) + (i << 12));
 		page = virt_to_page(((unsigned long) __rkp_ro_start) + (i << 12));
+#if 0
 		// Test Code to be removed
 		rkp_calc_max_threshold();
+#endif
 	}
 	else {
 		panic(KERN_ERR"TIMA-RKP: RO cred alloc failed order %x - i %x - j %x\n", order, i, j);
@@ -1185,6 +1189,7 @@ bad:
 		 * to avoid issues in the future. Marking all objects
 		 * as used avoids touching the remaining objects.
 		 */
+		BUG();
 		slab_fix(s, "Marking all objects used");
 		page->inuse = page->objects;
 		page->freelist = NULL;
@@ -1246,6 +1251,7 @@ out:
 	return n;
 
 fail:
+	BUG();
 	slab_unlock(page);
 	spin_unlock_irqrestore(&n->list_lock, *flags);
 	slab_fix(s, "Object at 0x%p not freed", object);
@@ -1332,8 +1338,8 @@ static unsigned long kmem_cache_flags(unsigned long object_size,
 #ifdef CONFIG_TIMA_RKP_RO_CRED
 	return flags;
 #else
-	if (slub_debug && (!slub_debug_slabs ||
-		!strncmp(slub_debug_slabs, name, strlen(slub_debug_slabs))))
+	if (slub_debug && (!slub_debug_slabs || (name &&
+		!strncmp(slub_debug_slabs, name, strlen(slub_debug_slabs)))))
 		flags |= slub_debug;
 
 	return flags;
@@ -2523,10 +2529,6 @@ redo:
 	tid = c->tid;
 	preempt_enable();
 
-
-	if (c->freelist != NULL)
-		check_freelist(c->freelist);
-
 	object = c->freelist;
 	page = c->page;
 	if (unlikely(!object || !node_match(page, node)))
@@ -2556,6 +2558,10 @@ redo:
 			goto redo;
 		}
 		prefetch_freepointer(s, next_object);
+
+		if (c->freelist != NULL)
+			check_freelist(c->freelist);
+
 		stat(s, ALLOC_FASTPATH);
 	}
 
@@ -4471,7 +4477,13 @@ static ssize_t show_slab_objects(struct kmem_cache *s,
 
 			page = ACCESS_ONCE(c->partial);
 			if (page) {
-				x = page->pobjects;
+				node = page_to_nid(page);
+				if (flags & SO_TOTAL)
+					WARN_ON_ONCE(1);
+				else if (flags & SO_OBJECTS)
+					WARN_ON_ONCE(1);
+				else
+					x = page->pages;
 				total += x;
 				nodes[node] += x;
 			}

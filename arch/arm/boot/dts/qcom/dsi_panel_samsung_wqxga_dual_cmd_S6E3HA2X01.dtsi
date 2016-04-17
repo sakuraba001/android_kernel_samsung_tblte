@@ -26,11 +26,12 @@
 		qcom,fg-err-gpio = <&pma8084_gpios 13 0x1>;
 		qcom,oled-det-gpio = <&pma8084_gpios 5 0x1>;
 
+		qcom,cmd-sync-wait-broadcast;
 		qcom,cont-splash-enabled;
 		qcom,partial-update-enabled;
 		qcom,partial-update-roi-merge;
 		qcom,mdss-dsi-panel-broadcast-mode;
-		qcom,panel-roi-alignment = <4 4 1 1 1 2>;
+		qcom,panel-roi-alignment = <8 8 1 1 1 2>;
 
 		qcom,mdss-pan-res = <800 2560>;
 		qcom,mdss-pan-size = <70 115>; /* <Width> <Height> real size of panel in mm */
@@ -668,11 +669,13 @@
 		qcom,fg-err-gpio = <&pma8084_gpios 13 0x1>;
 		qcom,oled-det-gpio = <&pma8084_gpios 5 0x1>;
 
+		qcom,cmd-sync-wait-broadcast;
+		qcom,cmd-sync-wait-trigger; /*SYNC UP WITH DSI1*/
 		qcom,cont-splash-enabled;
 		qcom,partial-update-enabled;
 		qcom,partial-update-roi-merge;
 		qcom,mdss-dsi-panel-broadcast-mode;
-		qcom,panel-roi-alignment = <4 4 1 1 1 2>;
+		qcom,panel-roi-alignment = <8 8 1 1 1 2>;
 
 		qcom,mdss-pan-res = <800 2560>;
 		qcom,mdss-pan-size = <70 115>; /* <Width> <Height> real size of panel in mm */

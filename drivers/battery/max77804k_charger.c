@@ -101,7 +101,7 @@ struct max77804k_charger_data {
 	int input_curr_limit_step;
 	int charging_curr_step;
 
-	sec_battery_platform_data_t	*pdata;
+	sec_charger_platform_data_t	*pdata;
 };
 
 static enum power_supply_property sec_charger_props[] = {
@@ -1637,7 +1637,7 @@ static int sec_charger_read_u32_index_dt(const struct device_node *np,
 static int sec_charger_parse_dt(struct max77804k_charger_data *charger)
 {
 	struct device_node *np = of_find_node_by_name(NULL, "charger");
-	sec_battery_platform_data_t *pdata = charger->pdata;
+	sec_charger_platform_data_t *pdata = charger->pdata;
 	int ret = 0;
 	int i, len;
 	const u32 *p;
@@ -1706,7 +1706,7 @@ static int max77804k_charger_probe(struct platform_device *pdev)
 	if (!charger)
 		return -ENOMEM;
 
-	pdata->charger_data = kzalloc(sizeof(sec_battery_platform_data_t), GFP_KERNEL);
+	pdata->charger_data = kzalloc(sizeof(sec_charger_platform_data_t), GFP_KERNEL);
 	if (!pdata->charger_data) {
 		ret = -ENOMEM;
 		goto err_free;
@@ -1733,8 +1733,8 @@ static int max77804k_charger_probe(struct platform_device *pdev)
 	charger->psy_otg.type		= POWER_SUPPLY_TYPE_OTG;
 	charger->psy_otg.get_property	= max77804k_otg_get_property;
 	charger->psy_otg.set_property	= max77804k_otg_set_property;
-	charger->psy_chg.properties		= max77804k_otg_props;
-	charger->psy_chg.num_properties	= ARRAY_SIZE(max77804k_otg_props);
+	charger->psy_otg.properties		= max77804k_otg_props;
+	charger->psy_otg.num_properties	= ARRAY_SIZE(max77804k_otg_props);
 	mutex_init(&charger->ops_lock);
 
 	if (charger->pdata->chg_gpio_init) {
