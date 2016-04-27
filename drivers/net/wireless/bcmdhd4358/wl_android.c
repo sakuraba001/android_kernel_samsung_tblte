@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 driver - Android related functions
  *
- * Copyright (C) 1999-2015, Broadcom Corporation
+ * Copyright (C) 1999-2014, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_android.c 530217 2015-01-29 13:01:05Z $
+ * $Id: wl_android.c 517114 2014-11-24 06:30:50Z $
  */
 
 #include <linux/module.h>
@@ -1485,11 +1485,11 @@ static int wl_android_set_cckm_krk(struct net_device *dev, char *command, int to
 
 	memset(iovar_buf, 0, sizeof(iovar_buf));
 	memcpy(key, command+skip_len, key_len);
-
-	WL_DBG(("CCKM KRK-BTK (%d/%d) :\n", key_len, total_len));
-	if (wl_dbg_level & WL_DBG_DBG) {
-		prhex(NULL, key, key_len);
-	}
+	if (key_len == CCKM_KRK_LEN)
+		WL_INFORM(("CCKM(%d) KRK %02X%02X\n", total_len, key[0], key[1]));
+	else
+		WL_INFORM(("CCKM(%d) KRK %02X%02X BTK %02X%02X\n", total_len,
+			key[0], key[1], key[CCKM_KRK_LEN], key[CCKM_KRK_LEN+1]));
 
 	error = wldev_iovar_setbuf(dev, "cckm_krk", key, key_len,
 		iovar_buf, WLC_IOCTL_MEDLEN, NULL);
@@ -1625,28 +1625,19 @@ wl_android_set_mac_address_filter(struct net_device *dev, const char* str)
 	int macmode = MACLIST_MODE_DISABLED;
 	struct maclist *list;
 	char eabuf[ETHER_ADDR_STR_LEN];
-	char *token;
 
 	/* string should look like below (macmode/macnum/maclist) */
 	/*   1 2 00:11:22:33:44:55 00:11:22:33:44:ff  */
 
 	/* get the MAC filter mode */
-	token = strsep((char**)&str, " ");
-	if (!token) {
-		return -1;
-	}
-	macmode = bcm_atoi(token);
+	macmode = bcm_atoi(strsep((char**)&str, " "));
 
 	if (macmode < MACLIST_MODE_DISABLED || macmode > MACLIST_MODE_ALLOW) {
 		DHD_ERROR(("%s : invalid macmode %d\n", __FUNCTION__, macmode));
 		return -1;
 	}
 
-	token = strsep((char**)&str, " ");
-	if (!token) {
-		return -1;
-	}
-	macnum = bcm_atoi(token);
+	macnum = bcm_atoi(strsep((char**)&str, " "));
 	if (macnum < 0 || macnum > MAX_NUM_MAC_FILT) {
 		DHD_ERROR(("%s : invalid number of MAC address entries %d\n",
 			__FUNCTION__, macnum));
@@ -2074,33 +2065,24 @@ wl_android_set_ltecx(struct net_device *dev, const char* string_num)
 
 	if (chan_bitmap) {
 		ret = wldev_iovar_setint(dev, "mws_coex_bitmap", chan_bitmap);
-		if (ret < 0) {
+		if (ret < 0)
 			DHD_ERROR(("mws_coex_bitmap error %d\n", ret));
-		}
 
 		ret = wldev_iovar_setint(dev, "mws_wlanrx_prot", DEFAULT_WLANRX_PROT);
-		if (ret < 0) {
+		if (ret < 0)
 			DHD_ERROR(("mws_wlanrx_prot error %d\n", ret));
-		}
 
 		ret = wldev_iovar_setint(dev, "mws_lterx_prot", DEFAULT_LTERX_PROT);
-		if (ret < 0) {
+		if (ret < 0)
 			DHD_ERROR(("mws_lterx_prot error %d\n", ret));
-		}
 
 		ret = wldev_iovar_setint(dev, "mws_ltetx_adv", DEFAULT_LTETX_ADV);
-		if (ret < 0) {
+		if (ret < 0)
 			DHD_ERROR(("mws_ltetx_adv error %d\n", ret));
-		}
 	} else {
 		ret = wldev_iovar_setint(dev, "mws_coex_bitmap", chan_bitmap);
-		if (ret < 0) {
-			if (ret == BCME_UNSUPPORTED) {
-				DHD_ERROR(("LTECX_CHAN_BITMAP is UNSUPPORTED\n"));
-			} else {
-				DHD_ERROR(("LTECX_CHAN_BITMAP error %d\n", ret));
-			}
-		}
+		if (ret < 0)
+			DHD_ERROR(("LTECX_CHAN_BITMAP error %d\n", ret));
 	}
 	return 1;
 }
@@ -3211,12 +3193,7 @@ wl_android_set_roam_offload_bssid_list(struct net_device *dev, const char *cmd)
 
 	for (i = 0; i < cnt; i++) {
 		str = get_string_by_separator(sbuf, 32, str, ',');
-		if (bcm_ether_atoe(sbuf, &bssid_list->bssid[i]) == 0) {
-			DHD_ERROR(("%s: Invalid station MAC Address!!!\n", __FUNCTION__));
-			kfree(bssid_list);
-			kfree(ioctl_buf);
-			return -1;
-		}
+		bcm_ether_atoe(sbuf, &bssid_list->bssid[i]);
 	}
 
 	bssid_list->cnt = cnt;

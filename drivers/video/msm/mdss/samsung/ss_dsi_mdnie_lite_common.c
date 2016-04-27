@@ -838,39 +838,6 @@ out :
 	return 0;
 }
 
-void coordinate_tunning_multi(int index, char (*coordinate_data_multi[MAX_MODE])[COORDINATE_DATA_SIZE], int mdnie_tune_index, int scr_wr_addr, int data_size)
-{
-	int i, j;
-	char white_r, white_g, white_b;
-	struct dsi_cmd_desc *coordinate_tunning_data = NULL;
-
-		for(i = 0; i < MAX_APP_MODE; i++) {
-			for(j = 0; j < MAX_MODE; j++) {
-				if((mdnie_data.mdnie_tune_value_dsi0[i][j][0] != NULL) && (i != eBOOK_APP)) {
-					coordinate_tunning_data = mdnie_data.mdnie_tune_value_dsi0[i][j][0];
-
-					white_r = coordinate_tunning_data[mdnie_data.mdnie_step_index[MDNIE_STEP2]].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]];
-					white_g = coordinate_tunning_data[mdnie_data.mdnie_step_index[MDNIE_STEP2]].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]];
-					white_b = coordinate_tunning_data[mdnie_data.mdnie_step_index[MDNIE_STEP2]].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]];
-
-
-					if((white_r == 0xff) && (white_g == 0xff) && (white_b == 0xff)) {
-						coordinate_tunning_data[mdnie_data.mdnie_step_index[MDNIE_STEP2]].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] = coordinate_data_multi[j][mdnie_tune_index][0];
-						coordinate_tunning_data[mdnie_data.mdnie_step_index[MDNIE_STEP2]].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] = coordinate_data_multi[j][mdnie_tune_index][2];
-						coordinate_tunning_data[mdnie_data.mdnie_step_index[MDNIE_STEP2]].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] = coordinate_data_multi[j][mdnie_tune_index][4];
-
-#ifdef MDNIE_LITE_TUN_DEBUG
-					pr_info("%s mdnie_tune_index %d \n coordinate_data_multi[0]= %d\n coordinate_data_multi[2]= %d\n coordinate_data_multi[4]= %d\n",
-						__func__, mdnie_tune_index,coordinate_data_multi[j][mdnie_tune_index][0],
-						coordinate_data_multi[j][mdnie_tune_index][2], coordinate_data_multi[j][mdnie_tune_index][4]);
-#endif
-					}
-
-				}
-			}
-		}
-}
-
 void coordinate_tunning(int index, char *coordinate_data, int scr_wr_addr, int data_size)
 {
 	int i, j;

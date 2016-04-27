@@ -4,7 +4,7 @@
  * Provides type definitions and function prototypes used to link the
  * DHD OS, bus, and protocol modules.
  *
- * Copyright (C) 1999-2015, Broadcom Corporation
+ * Copyright (C) 1999-2014, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -24,7 +24,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd.h 547730 2015-04-09 09:07:57Z $
+ * $Id: dhd.h 520048 2014-12-10 02:47:25Z $
  */
 
 /****************
@@ -48,6 +48,8 @@
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) && defined(CONFIG_HAS_WAKELOCK)
 #include <linux/wakelock.h>
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) && defined (CONFIG_HAS_WAKELOCK) */
+
+
 /* The kernel threading is sdio-specific */
 struct task_struct;
 struct sched_param;
@@ -64,6 +66,10 @@ int get_scheduler_policy(struct task_struct *p);
 #include <wdf.h>
 #include <WdfMiniport.h>
 #endif /* (BCMWDF)  */
+
+#if defined(WL11U) && !defined(MFP)
+#define MFP /* Applying interaction with MFP by spec HS2.0 REL2 */
+#endif /* WL11U */
 
 #if defined(KEEP_ALIVE)
 /* Default KEEP_ALIVE Period is 55 sec to prevent AP from sending Keep Alive probe frame */
@@ -171,9 +177,7 @@ enum dhd_prealloc_index {
 enum dhd_dongledump_mode {
 	DUMP_DISABLED = 0,
 	DUMP_MEMONLY,
-	DUMP_MEMFILE,
-	DUMP_MEMFILE_BUGON,
-	DUMP_MEMFILE_MAX
+	DUMP_MEMFILE
 };
 
 /* Packet alignment for most efficient SDIO (can change based on platform) */
@@ -205,7 +209,6 @@ enum {
 	 * 2. TCPACKs that don't need to hurry delivered remains longer in TXQ so can be suppressed.
 	 */
 	TCPACK_SUP_DELAYTX,
-	TCPACK_SUP_HOLD,
 	TCPACK_SUP_LAST_MODE
 };
 #endif /* DHDTCPACK_SUPPRESS */
@@ -383,8 +386,6 @@ typedef struct dhd_pub {
 #ifdef DHDTCPACK_SUPPRESS
 	uint8 tcpack_sup_mode;		/* TCPACK suppress mode */
 	void *tcpack_sup_module;	/* TCPACK suppress module */
-	uint32 tcpack_sup_ratio;
-	uint32 tcpack_sup_delay;
 #endif /* DHDTCPACK_SUPPRESS */
 #if defined(ARP_OFFLOAD_SUPPORT)
 	uint32 arp_version;
@@ -441,12 +442,6 @@ typedef struct dhd_pub {
 	char vars_ccode[WLC_CNTRY_BUF_SZ];
 	uint vars_regrev;
 #endif /* KEEP_JP_REGREV */
-#ifdef WLTDLS
-	uint32 tdls_mode;
-#endif
-#ifdef DHD_LOSSLESS_ROAMING
-	uint8 dequeue_prec_map;
-#endif
 } dhd_pub_t;
 #if defined(CUSTOMER_HW4)
 #define MAX_RESCHED_CNT 600
@@ -721,10 +716,6 @@ extern int dhd_os_d3ack_wait(dhd_pub_t * pub, uint * condition, bool * pending);
 extern int dhd_os_d3ack_wake(dhd_pub_t * pub);
 extern unsigned int dhd_os_get_ioctl_resp_timeout(void);
 extern void dhd_os_set_ioctl_resp_timeout(unsigned int timeout_msec);
-extern void dhd_sched_misc_task(dhd_pub_t *dhdp);
-extern void dhd_sched_tx_task(dhd_pub_t *dhdp);
-extern void dhd_rx_packet_process(dhd_pub_t *dhdp, int ifidx,
-	struct sk_buff *pfirst, uint16 pktcnt);
 
 extern int dhd_os_get_image_block(char * buf, int len, void * image);
 extern void * dhd_os_open_image(char * filename);
@@ -738,8 +729,8 @@ extern void dhd_os_sdlock_rxq(dhd_pub_t * pub);
 extern void dhd_os_sdunlock_rxq(dhd_pub_t * pub);
 extern void dhd_os_sdlock_sndup_rxq(dhd_pub_t * pub);
 #ifdef DHDTCPACK_SUPPRESS
-extern unsigned long dhd_os_tcpacklock(dhd_pub_t *pub);
-extern void dhd_os_tcpackunlock(dhd_pub_t *pub, unsigned long flags);
+extern void dhd_os_tcpacklock(dhd_pub_t *pub);
+extern void dhd_os_tcpackunlock(dhd_pub_t *pub);
 #endif /* DHDTCPACK_SUPPRESS */
 
 extern int dhd_customer_oob_irq_map(void *adapter, unsigned long *irq_flags_ptr);
@@ -1091,11 +1082,13 @@ void dhd_arp_offload_add_ip(dhd_pub_t *dhd, uint32 ipaddr, int idx);
 #endif /* ARP_OFFLOAD_SUPPORT */
 #ifdef WLTDLS
 int dhd_tdls_enable(struct net_device *dev, bool tdls_on, bool auto_on, struct ether_addr *mac);
-int dhd_tdls_set_mode(dhd_pub_t *dhd, bool wfd_mode);
 #ifdef PCIE_FULL_DONGLE
 void dhd_tdls_update_peer_info(struct net_device *dev, bool connect_disconnect, uint8 *addr);
 #endif /* PCIE_FULL_DONGLE */
 #endif /* WLTDLS */
+#ifdef CUSTOMER_HW4
+int dhd_tdls_reset_manual(dhd_pub_t *dhd, struct net_device *dev);
+#endif /* CUSTOMER_HW4 */
 /* Neighbor Discovery Offload Support */
 int dhd_ndo_enable(dhd_pub_t * dhd, int ndo_enable);
 int dhd_ndo_add_ip(dhd_pub_t *dhd, char* ipaddr, int idx);
@@ -1105,7 +1098,7 @@ int dhd_ioctl_process(dhd_pub_t *pub, int ifidx, struct dhd_ioctl *ioc, void *da
 
 #if defined(SUPPORT_MULTIPLE_REVISION)
 extern int
-concate_revision(struct dhd_bus *bus, char *fwpath, char *nvpath);
+concate_revision(struct dhd_bus *bus, char *fwpath, int fw_path_len, char *nvpath, int nv_path_len);
 #if defined(PLATFORM_MPS)
 extern int wifi_get_fw_nv_path(char *fw, char *nv);
 #endif
@@ -1204,17 +1197,12 @@ void custom_rps_map_clear(struct netdev_rx_queue *queue);
 #define RPS_CPUS_WLAN_CORE_ID 4
 #else
 #define RPS_CPUS_MASK "6"
-#define RPS_CPUS_MASK_P2P "6"
-#define RPS_CPUS_MASK_IBSS "6"
+#define RPS_CPUS_MASK_P2P "1"
+#define RPS_CPUS_MASK_IBSS "1"
 #endif /* CONFIG_MACH_UNIVERSAL5433 */
 #endif /* (SET_RPS_CPUS || ARGOS_RPS_CPU_CTL) && CUSTOMER_HW4 */
 
 #ifdef CUSTOMER_HW4
 extern void dhd_get_memdump_info(dhd_pub_t *dhd);
 #endif /* CUSTOMER_HW4 */
-#if defined(DHD_USE_IDLECOUNT) && defined(BCMPCIE)
-extern void dhdpcie_stop_runtimepm(dhd_pub_t *pub);
-extern void dhdpcie_start_runtimepm(dhd_pub_t *pub);
-extern int dhdpcie_set_suspend_resume(struct pci_dev *dev, bool state);
-#endif /* DHD_USE_IDLECOUNT && BCMPCIE */
 #endif /* _dhd_h_ */

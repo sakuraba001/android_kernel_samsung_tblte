@@ -25,8 +25,8 @@
 #include <linux/mutex.h>
 #include <linux/android_pmem.h>
 #include <linux/io.h>
-#include <soc/qcom/scm.h> // multiple oemflag
-//#include <mach/scm.h>   // one oemflag => old version
+#include <soc/qcom/scm.h>
+//#include <linux/tzcom.h>
 #include <linux/types.h>
 
 #define TZIC_DEV "tzic"
@@ -308,3 +308,4 @@ MODULE_VERSION("1.00");
 
 module_init(tzic_init);
 module_exit(tzic_exit);
+

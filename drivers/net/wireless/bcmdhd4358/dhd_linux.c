@@ -2,7 +2,7 @@
  * Broadcom Dongle Host Driver (DHD), Linux-specific network interface
  * Basically selected code segments from usb-cdc.c and usb-rndis.c
  *
- * Copyright (C) 1999-2015, Broadcom Corporation
+ * Copyright (C) 1999-2014, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -22,7 +22,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_linux.c 547730 2015-04-09 09:07:57Z $
+ * $Id: dhd_linux.c 520560 2014-12-12 08:10:30Z $
  */
 
 #include <typedefs.h>
@@ -118,6 +118,7 @@
 #define MEMDUMP_WATCHDOG_MS	250
 #define MAX_RETRY	10
 static int file_cnt = 0;
+
 dhd_pub_t *g_dhdp = NULL;
 #endif /* DHD_DEBUG_PAGEALLOC */
 
@@ -1448,17 +1449,13 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 	uint nd_ra_filter = 0;
 	int ret = 0;
 #if defined(PASS_ALL_MCAST_PKTS) && defined(CUSTOMER_HW4)
-	struct dhd_info *dhdinfo;
+	struct dhd_info *dhdinfo = dhd->info;
 	uint32 allmulti;
 	uint i;
 #endif /* PASS_ALL_MCAST_PKTS && CUSTOMER_HW4 */
 
 	if (!dhd)
 		return -ENODEV;
-
-#if defined(PASS_ALL_MCAST_PKTS) && defined(CUSTOMER_HW4)
-	dhdinfo = dhd->info;
-#endif /* PASS_ALL_MCAST_PKTS && CUSTOMER_HW4 */
 
 	DHD_TRACE(("%s: enter, value = %d in_suspend=%d\n",
 		__FUNCTION__, value, dhd->in_suspend));
@@ -1501,12 +1498,6 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 				 * each third DTIM for better power savings.  Note that
 				 * one side effect is a chance to miss BC/MC packet.
 				 */
-#ifdef WLTDLS
-				/* Do not set bcn_li_ditm on WFD mode */
-				if (dhd->tdls_mode) {
-					bcn_li_dtim = 0;
-				} else
-#endif /* WLTDLS */
 				bcn_li_dtim = dhd_get_suspend_bcn_li_dtim(dhd);
 				bcm_mkiovar("bcn_li_dtim", (char *)&bcn_li_dtim,
 					4, iovbuf, sizeof(iovbuf));
@@ -2096,7 +2087,7 @@ dhd_ifadd_event_handler(void *handle, void *event_info, u8 event)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 11, 0))
 	vwdev = kzalloc(sizeof(*vwdev), GFP_KERNEL);
 	if (unlikely(!vwdev)) {
-		DHD_ERROR(("%s: Could not allocate wireless device\n", __FUNCTION__));
+		WL_ERR(("Could not allocate wireless device\n"));
 		goto done;
 	}
 	primary_ndev = dhd->pub.info->iflist[0]->net;
@@ -2115,7 +2106,6 @@ dhd_ifadd_event_handler(void *handle, void *event_info, u8 event)
 	if (ret != BCME_OK) {
 		DHD_ERROR(("%s: dhd_register_if failed\n", __FUNCTION__));
 			dhd_remove_if(&dhd->pub, ifidx, TRUE);
-		goto done;
 	}
 #ifdef PCIE_FULL_DONGLE
 	/* Turn on AP isolation in the firmware for interfaces operating in AP mode */
@@ -2125,12 +2115,7 @@ dhd_ifadd_event_handler(void *handle, void *event_info, u8 event)
 
 		memset(iovbuf, 0, sizeof(iovbuf));
 		bcm_mkiovar("ap_isolate", (char *)&var_int, 4, iovbuf, sizeof(iovbuf));
-		ret = dhd_wl_ioctl_cmd(&dhd->pub, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, ifidx);
-
-		if (ret != BCME_OK) {
-			DHD_ERROR(("%s: Failed to set ap_isolate to dongle\n", __FUNCTION__));
-			dhd_remove_if(&dhd->pub, ifidx, TRUE);
-		}
+		dhd_wl_ioctl_cmd(&dhd->pub, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, ifidx);
 	}
 #endif /* PCIE_FULL_DONGLE */
 done:
@@ -2384,14 +2369,6 @@ dhd_sendpkt(dhd_pub_t *dhdp, int ifidx, void *pktbuf)
 		return -ENODEV;
 	}
 
-#if defined(DHD_USE_IDLECOUNT) && defined(BCMPCIE)
-	if (bus_wakeup(dhdp) == TRUE) {
-		DHD_ERROR(("%s : pcie is still in suspend state!!\n", __FUNCTION__));
-		PKTFREE(dhdp->osh, pktbuf, TRUE);
-		return -EBUSY;
-	}
-#endif /* DHD_USE_IDLECOUNT && BCMPCIE */
-
 #ifdef PCIE_FULL_DONGLE
 	if (dhdp->busstate == DHD_BUS_SUSPEND) {
 		DHD_ERROR(("%s : pcie is still in suspend state!!\n", __FUNCTION__));
@@ -2452,15 +2429,17 @@ dhd_sendpkt(dhd_pub_t *dhdp, int ifidx, void *pktbuf)
 			return BCME_ERROR;
 	}
 
+#ifdef DHDTCPACK_SUPPRESS
+	/* If this packet has replaced another packet and got freed, just return */
+	if (dhd_tcpack_suppress(dhdp, pktbuf))
+		return ret;
+#endif /* DHDTCPACK_SUPPRESS */
+
 	/* Look into the packet and update the packet priority */
 #ifndef PKTPRIO_OVERRIDE
 	if (PKTPRIO(pktbuf) == 0)
 #endif /* !CUSTOMER_HW4 */
-#ifdef QOS_MAP_SET
-		pktsetprio_qms(pktbuf, wl_get_up_table(), FALSE);
-#else
 		pktsetprio(pktbuf, FALSE);
-#endif /* QOS_MAP_SET */
 
 
 #ifdef PCIE_FULL_DONGLE
@@ -2535,16 +2514,6 @@ dhd_start_xmit(struct sk_buff *skb, struct net_device *net)
 	uint8 htsfdlystat_sz = 0;
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
-#if defined(DHD_USE_IDLECOUNT) && defined(BCMPCIE)
-	if (bus_wakeup(&dhd->pub) == TRUE) {
-		DHD_ERROR(("%s : pcie is still in suspend state!!\n", __FUNCTION__));
-		dev_kfree_skb(skb);
-		ifp = DHD_DEV_IFP(net);
-		ifp->stats.tx_dropped++;
-		dhd->pub.tx_dropped++;
-		return -EBUSY;
-	}
-#endif /* DHD_USE_IDLECOUNT && BCMPCIE */
 
 	DHD_GENERAL_LOCK(&dhd->pub, flags);
 	dhd->pub.tx_in_progress = TRUE;
@@ -2661,22 +2630,6 @@ dhd_start_xmit(struct sk_buff *skb, struct net_device *net)
 	}
 
 
-#ifdef DHDTCPACK_SUPPRESS
-	if (dhd->pub.tcpack_sup_mode == TCPACK_SUP_HOLD) {
-		/* If this packet has been hold or got freed, just return */
-		if (dhd_tcpack_hold(&dhd->pub, pktbuf, ifidx)) {
-			ret = 0;
-			goto done;
-		}
-	} else {
-		/* If this packet has replaced another packet and got freed, just return */
-		if (dhd_tcpack_suppress(&dhd->pub, pktbuf)) {
-			ret = 0;
-			goto done;
-		}
-	}
-#endif /* DHDTCPACK_SUPPRESS */
-
 	ret = dhd_sendpkt(&dhd->pub, ifidx, pktbuf);
 
 done:
@@ -2703,6 +2656,7 @@ done:
 	DHD_PERIM_UNLOCK_TRY(DHD_FWDER_UNIT(dhd), TRUE);
 	DHD_OS_WAKE_UNLOCK(&dhd->pub);
 
+
 	/* Return ok: we always eat the packet */
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20))
 	return 0;
@@ -2722,13 +2676,6 @@ dhd_txflowcontrol(dhd_pub_t *dhdp, int ifidx, bool state)
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
 	ASSERT(dhd);
-
-#ifdef DHD_LOSSLESS_ROAMING
-	/* block flowcontrol during roaming */
-	if ((dhdp->dequeue_prec_map == 1 << PRIO_8021D_NC) && state == ON) {
-		return;
-	}
-#endif
 
 	if (ifidx == ALL_INTERFACES) {
 		/* Flow control on all active interfaces */
@@ -2891,7 +2838,7 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 			eh = (struct ether_header *)PKTDATA(dhdp->osh, pktbuf);
 			if (ETHER_ISUCAST(eh->ether_dhost)) {
 				if (dhd_find_sta(dhdp, ifidx, (void *)eh->ether_dhost)) {
-					dhd_sendpkt(dhdp, ifidx, pktbuf);
+						dhd_sendpkt(dhdp, ifidx, pktbuf);
 					continue;
 				}
 			} else {
@@ -3027,12 +2974,7 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 #endif /* PNO_SUPPORT */
 
 #ifdef DHD_DONOT_FORWARD_BCMEVENT_AS_NETWORK_PKT
-#if defined(BCMPCIE) && defined(CONFIG_DHD_USE_STATIC_BUF) && \
-	defined(DHD_USE_STATIC_CTRLBUF)
-			PKTFREE_STATIC(dhdp->osh, pktbuf, FALSE);
-#else
 			PKTFREE(dhdp->osh, pktbuf, FALSE);
-#endif /* BCMPCIE && CONFIG_DHD_USE_STATIC_BUF && DHD_USE_STATIC_CTRLBUF */
 			continue;
 #endif /* DHD_DONOT_FORWARD_BCMEVENT_AS_NETWORK_PKT */
 		} else {
@@ -3228,13 +3170,12 @@ dhd_watchdog_thread(void *data)
 		setScheduler(current, SCHED_FIFO, &param);
 	}
 
-	while (1) {
+	while (1)
 		if (down_interruptible (&tsk->sema) == 0) {
 			unsigned long flags;
 			unsigned long jiffies_at_start = jiffies;
 			unsigned long time_lapse;
 
-			DHD_OS_WD_WAKE_LOCK(&dhd->pub);
 #ifdef DHD_DEBUG_PAGEALLOC
 			if (file_cnt == MAX_RETRY) {
 				fsize = dhd_get_memdump_file_size();
@@ -3267,18 +3208,15 @@ dhd_watchdog_thread(void *data)
 				time_lapse = jiffies - jiffies_at_start;
 
 				/* Reschedule the watchdog */
-				if (dhd->wd_timer_valid) {
+				if (dhd->wd_timer_valid)
 					mod_timer(&dhd->timer,
 					    jiffies +
 					    msecs_to_jiffies(dhd_watchdog_ms) -
 					    min(msecs_to_jiffies(dhd_watchdog_ms), time_lapse));
+					DHD_GENERAL_UNLOCK(&dhd->pub, flags);
 				}
-				DHD_GENERAL_UNLOCK(&dhd->pub, flags);
-			}
-			DHD_OS_WD_WAKE_UNLOCK(&dhd->pub);
 		} else {
 			break;
-		}
 	}
 
 	complete_and_exit(&tsk->completed, 0);
@@ -3298,7 +3236,6 @@ static void dhd_watchdog(ulong data)
 		return;
 	}
 
-	DHD_OS_WD_WAKE_LOCK(&dhd->pub);
 	/* Call the bus module watchdog */
 	dhd_bus_watchdog(&dhd->pub);
 
@@ -3310,7 +3247,7 @@ static void dhd_watchdog(ulong data)
 	if (dhd->wd_timer_valid)
 		mod_timer(&dhd->timer, jiffies + msecs_to_jiffies(dhd_watchdog_ms));
 	DHD_GENERAL_UNLOCK(&dhd->pub, flags);
-	DHD_OS_WD_WAKE_UNLOCK(&dhd->pub);
+
 }
 
 #ifdef ENABLE_ADAPTIVE_SCHED
@@ -3596,7 +3533,6 @@ dhd_dpc(ulong data)
 	dhd_info_t *dhd;
 
 	dhd = (dhd_info_t *)data;
-	DHD_OS_WAKE_LOCK(&dhd->pub);
 
 	/* this (tasklet) can be scheduled in dhd_sched_dpc[dhd_linux.c]
 	 * down below , wake lock is set,
@@ -3604,12 +3540,10 @@ dhd_dpc(ulong data)
 	 */
 	/* Call bus dpc unless it indicated down (then clean stop) */
 	if (dhd->pub.busstate != DHD_BUS_DOWN) {
-		if (dhd_bus_dpc(dhd->pub.bus)) {
+		if (dhd_bus_dpc(dhd->pub.bus))
 			tasklet_schedule(&dhd->tasklet);
+		else
 			DHD_OS_WAKE_UNLOCK(&dhd->pub);
-		} else {
-			DHD_OS_WAKE_UNLOCK(&dhd->pub);
-		}
 	} else {
 		dhd_bus_stop(dhd->pub.bus, TRUE);
 		DHD_OS_WAKE_UNLOCK(&dhd->pub);
@@ -3635,7 +3569,6 @@ dhd_sched_dpc(dhd_pub_t *dhdp)
 		return;
 	} else {
 		tasklet_schedule(&dhd->tasklet);
-		DHD_OS_WAKE_UNLOCK(dhdp);
 	}
 }
 
@@ -4274,21 +4207,8 @@ dhd_stop(struct net_device *net)
 				if (ifp && ifp->net) {
 					dhd_if_del_sta_list(ifp);
 				}
-#ifdef ARP_OFFLOAD_SUPPORT
-				if (dhd_inetaddr_notifier_registered) {
-					dhd_inetaddr_notifier_registered = FALSE;
-					unregister_inetaddr_notifier(&dhd_inetaddr_notifier);
-				}
-#endif /* ARP_OFFLOAD_SUPPORT */
-#ifdef CONFIG_IPV6
-				if (dhd_inet6addr_notifier_registered) {
-					dhd_inet6addr_notifier_registered = FALSE;
-					unregister_inet6addr_notifier(&dhd_inet6addr_notifier);
-				}
-#endif /* CONFIG_IPV6 */
 				dhd_net_if_unlock_local(dhd);
 			}
-			cancel_work_sync(dhd->dhd_deferred_wq);
 		}
 	}
 #endif /* WL_CFG80211 */
@@ -4404,9 +4324,7 @@ dhd_open(struct net_device *net)
 	DHD_PERIM_LOCK(&dhd->pub);
 	dhd->pub.dongle_trap_occured = 0;
 	dhd->pub.hang_was_sent = 0;
-#ifdef DHD_LOSSLESS_ROAMING
-	dhd->pub.dequeue_prec_map = ALLPRIO;
-#endif
+
 #if !defined(WL_CFG80211)
 	/*
 	 * Force start if ifconfig_up gets called before START command
@@ -4506,21 +4424,6 @@ dhd_open(struct net_device *net)
 			DHD_ERROR(("%s: failed to bring up cfg80211\n", __FUNCTION__));
 			ret = -1;
 			goto exit;
-		}
-		if (!dhd_download_fw_on_driverload) {
-#ifdef ARP_OFFLOAD_SUPPORT
-			dhd->pend_ipaddr = 0;
-			if (!dhd_inetaddr_notifier_registered) {
-				dhd_inetaddr_notifier_registered = TRUE;
-				register_inetaddr_notifier(&dhd_inetaddr_notifier);
-			}
-#endif /* ARP_OFFLOAD_SUPPORT */
-#ifdef CONFIG_IPV6
-			if (!dhd_inet6addr_notifier_registered) {
-				dhd_inet6addr_notifier_registered = TRUE;
-				register_inet6addr_notifier(&dhd_inet6addr_notifier);
-			}
-#endif /* CONFIG_IPV6 */
 		}
 		dhd_set_scb_probe(&dhd->pub);
 #endif /* WL_CFG80211 */
@@ -4760,21 +4663,15 @@ dhd_remove_if(dhd_pub_t *dhdpub, int ifidx, bool need_rtnl_lock)
 
 
 
-#ifdef CUSTOMER_HW4
-#if defined(ARGOS_RPS_CPU_CTL) && defined(ARGOS_CPU_SCHEDULER)
+#if defined(ARGOS_RPS_CPU_CTL) && defined(ARGOS_CPU_SCHEDULER) && defined(CUSTOMER_HW4)
 				if (ifidx == 0) {
 					argos_register_notifier_deinit();
 				}
-#endif /* ARGOS_RPS_CPU_CTL && ARGOS_CPU_SCHEDULER */
-#if defined(SET_RPS_CPUS)
+#endif /* ARGOS_RPS_CPU_CTL && ARGOS_CPU_SCHEDULER && CUSTOMER_HW4 */
+
+#if defined(SET_RPS_CPUS) && defined(CUSTOMER_HW4)
 				custom_rps_map_clear(ifp->net->_rx);
-#endif /* SET_RPS_CPUS */
-#if (defined(SET_RPS_CPUS) || defined(ARGOS_RPS_CPU_CTL))
-#if defined(DHDTCPACK_SUPPRESS) && defined(BCMPCIE)
-				dhd_tcpack_suppress_set(dhdpub, TCPACK_SUP_OFF);
-#endif /* DHDTCPACK_SUPPRESS && BCMPCIE */
-#endif /* SET_RPS_CPUS || ARGOS_RPS_CPU_CTL */
-#endif /* CUSTOMER_HW4 */
+#endif /* SET_RPS_CPUS && defined(CUSTOMER_HW4) */
 				if (need_rtnl_lock)
 					unregister_netdev(ifp->net);
 				else
@@ -5234,11 +5131,7 @@ dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen)
 #ifdef BCMSDIO
 	dhd_tcpack_suppress_set(&dhd->pub, TCPACK_SUP_DELAYTX);
 #elif defined(BCMPCIE)
-#if defined(CUSTOMER_HW4) && (defined(SET_RPS_CPUS) || defined(ARGOS_RPS_CPU_CTL))
-	dhd_tcpack_suppress_set(&dhd->pub, TCPACK_SUP_OFF);
-#else
-	dhd_tcpack_suppress_set(&dhd->pub, TCPACK_SUP_HOLD);
-#endif /* CUSTOMER_HW4 && (SET_RPS_CPUS || ARGOS_RPS_CPU_CTL) */
+	dhd_tcpack_suppress_set(&dhd->pub, TCPACK_SUP_REPLACE);
 #else
 	dhd_tcpack_suppress_set(&dhd->pub, TCPACK_SUP_OFF);
 #endif /* BCMSDIO */
@@ -5477,6 +5370,7 @@ dhd_bus_start(dhd_pub_t *dhdp)
 		dhd_os_sdunlock(dhdp);
 #endif /* BCMPCIE_OOB_HOST_WAKE */
 		DHD_PERIM_UNLOCK(dhdp);
+		DHD_OS_WD_WAKE_UNLOCK(&dhd->pub);
 		DHD_ERROR(("%s Host failed to register for OOB\n", __FUNCTION__));
 		return -ENODEV;
 	}
@@ -5516,6 +5410,7 @@ dhd_bus_start(dhd_pub_t *dhdp)
 		DHD_ERROR(("%s failed bus is not ready\n", __FUNCTION__));
 		dhd_os_sdunlock(dhdp);
 		DHD_PERIM_UNLOCK(dhdp);
+		DHD_OS_WD_WAKE_UNLOCK(&dhd->pub);
 		return -ENODEV;
 	}
 
@@ -5597,6 +5492,23 @@ auto_mode:
 exit:
 	return ret;
 }
+#ifdef CUSTOMER_HW4
+int dhd_tdls_reset_manual(dhd_pub_t *dhd, struct net_device *dev)
+{
+	int ret;
+
+	if (!FW_SUPPORTED(dhd, tdls))
+		return BCME_ERROR;
+
+	ret = dhd_tdls_enable(dev, false, false, NULL);
+	if (ret < 0)
+		return ret;
+	ret = dhd_tdls_enable(dev, true, false, NULL);
+	if (ret < 0)
+		return ret;
+	return BCME_OK;
+}
+#endif /* CUSTOMER_HW4 */
 int dhd_tdls_enable(struct net_device *dev, bool tdls_on, bool auto_on, struct ether_addr *mac)
 {
 	dhd_info_t *dhd = DHD_DEV_INFO(dev);
@@ -5605,49 +5517,6 @@ int dhd_tdls_enable(struct net_device *dev, bool tdls_on, bool auto_on, struct e
 		ret = _dhd_tdls_enable(&dhd->pub, tdls_on, auto_on, mac);
 	else
 		ret = BCME_ERROR;
-	return ret;
-}
-
-int
-dhd_tdls_set_mode(dhd_pub_t *dhd, bool wfd_mode)
-{
-	char iovbuf[WLC_IOCTL_SMLEN];
-	int ret = 0;
-	bool auto_on = false;
-	uint32 mode =  wfd_mode;
-
-#ifdef CUSTOMER_HW4
-	if (wfd_mode) {
-		auto_on = false;
-	} else {
-		auto_on = true;
-	}
-#else
-	auto_on = false;
-#endif
-	ret = _dhd_tdls_enable(dhd, false, auto_on, NULL);
-	if (ret < 0) {
-		DHD_ERROR(("%s: Disable tdls_auto_op failed. %d\n", __FUNCTION__, ret));
-		return ret;
-	}
-
-
-	bcm_mkiovar("tdls_wfd_mode", (char *)&mode, sizeof(mode),
-			iovbuf, sizeof(iovbuf));
-	if (((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-			sizeof(iovbuf), TRUE, 0)) < 0) &&
-			(ret != BCME_UNSUPPORTED)) {
-		DHD_ERROR(("%s: tdls_wfd_mode faile_wfd_mode %d\n", __FUNCTION__, ret));
-		return ret;
-	}
-
-	ret = _dhd_tdls_enable(dhd, true, auto_on, NULL);
-	if (ret < 0) {
-		DHD_ERROR(("%s: enable tdls_auto_op failed. %d\n", __FUNCTION__, ret));
-		return ret;
-	}
-
-	dhd->tdls_mode = mode;
 	return ret;
 }
 #ifdef PCIE_FULL_DONGLE
@@ -5789,7 +5658,7 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	char iovbuf[WL_EVENTING_MASK_LEN + 12];	/*  Room for "event_msgs" + '\0' + bitvec  */
 	uint32 buf_key_b4_m4 = 1;
 	uint8 msglen;
-	eventmsgs_ext_t *eventmask_msg = NULL;
+	eventmsgs_ext_t *eventmask_msg;
 	char iov_buf[WLC_IOCTL_SMLEN];
 	int ret2 = 0;
 #ifdef WLAIBSS
@@ -5927,11 +5796,11 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #endif /* PKT_FILTER_SUPPORT */
 #ifdef WLTDLS
 	dhd->tdls_enable = FALSE;
-	dhd_tdls_set_mode(dhd, false);
 #endif /* WLTDLS */
 	dhd->suspend_bcn_li_dtim = CUSTOM_SUSPEND_BCN_LI_DTIM;
 	DHD_TRACE(("Enter %s\n", __FUNCTION__));
 	dhd->op_mode = 0;
+	dhd->memdump_enabled = DUMP_DISABLED;
 #ifdef CUSTOMER_HW4
 	if (!dhd_validate_chipid(dhd)) {
 		DHD_ERROR(("%s: CONFIG_BCMXXX and CHIP ID(%x) is mismatched\n",
@@ -6502,9 +6371,7 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	setbit(eventmask, WLC_E_AIBSS_TXFAIL);
 #endif /* WLAIBSS */
 	setbit(eventmask, WLC_E_TRACE);
-#ifdef DHD_LOSSLESS_ROAMING
-	setbit(eventmask, WLC_E_ROAM_PREP);
-#endif
+
 	/* Write updated Event mask */
 	bcm_mkiovar("event_msgs", eventmask, WL_EVENTING_MASK_LEN, iovbuf, sizeof(iovbuf));
 	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0) {
@@ -7320,14 +7187,12 @@ void dhd_detach(dhd_pub_t *dhdp)
 			if (ifp->net->reg_state == NETREG_UNINITIALIZED)
 				free_netdev(ifp->net);
 			else {
-#ifdef CUSTOMER_HW4
-#if defined(ARGOS_CPU_SCHEDULER) && defined(ARGOS_RPS_CPU_CTL)
+#if defined(ARGOS_CPU_SCHEDULER) && defined(ARGOS_RPS_CPU_CTL) && defined(CUSTOMER_HW4)
 				argos_register_notifier_deinit();
-#endif /*  ARGOS_CPU_SCHEDULER && ARGOS_RPS_CPU_CTL */
-#if defined(SET_RPS_CPUS)
+#endif /*  ARGOS_CPU_SCHEDULER && ARGOS_RPS_CPU_CTL && CUSTOMER_HW4 */
+#if defined(SET_RPS_CPUS) && defined(CUSTOMER_HW4)
 				custom_rps_map_clear(ifp->net->_rx);
-#endif /* SET_RPS_CPUS */
-#endif /* CUSTOMER_HW4 */
+#endif /* SET_RPS_CPUS && defined(CUSTOMER_HW4) */
 				unregister_netdev(ifp->net);
 			}
 			ifp->net = NULL;
@@ -7482,10 +7347,6 @@ dhd_clear(dhd_pub_t *dhdp)
 
 	if (dhdp) {
 		int i;
-#ifdef DHDTCPACK_SUPPRESS
-		/* Clean up timer/data structure for any remaining/pending packet or timer. */
-		dhd_tcpack_info_tbl_clean(dhdp);
-#endif /* DHDTCPACK_SUPPRESS */
 		for (i = 0; i < ARRAYSIZE(dhdp->reorder_bufs); i++) {
 			if (dhdp->reorder_bufs[i]) {
 				reorder_info_t *ptr;
@@ -7740,16 +7601,13 @@ dhd_os_wd_timer(void *bus, uint wdtick)
 		return;
 	}
 
-	DHD_OS_WD_WAKE_LOCK(pub);
 	DHD_GENERAL_LOCK(pub, flags);
 
 	/* don't start the wd until fw is loaded */
 	if (pub->busstate == DHD_BUS_DOWN) {
 		DHD_GENERAL_UNLOCK(pub, flags);
-#if !defined(DHD_USE_IDLECOUNT) && defined(BCMPCIE)
 		if (!wdtick)
 			DHD_OS_WD_WAKE_UNLOCK(pub);
-#endif /* !DHD_USE_IDLECOUNT && BCMPCIE */
 		return;
 	}
 
@@ -7758,22 +7616,18 @@ dhd_os_wd_timer(void *bus, uint wdtick)
 		dhd->wd_timer_valid = FALSE;
 		DHD_GENERAL_UNLOCK(pub, flags);
 		del_timer_sync(&dhd->timer);
-#if !defined(DHD_USE_IDLECOUNT) && defined(BCMPCIE)
 		DHD_OS_WD_WAKE_UNLOCK(pub);
-#endif /* !DHD_USE_IDLECOUNT && BCMPCIE */
 		return;
 	}
 
 	if (wdtick) {
+		DHD_OS_WD_WAKE_LOCK(pub);
 		dhd_watchdog_ms = (uint)wdtick;
 		/* Re arm the timer, at last watchdog period */
 		mod_timer(&dhd->timer, jiffies + msecs_to_jiffies(dhd_watchdog_ms));
 		dhd->wd_timer_valid = TRUE;
 	}
 	DHD_GENERAL_UNLOCK(pub, flags);
-#if !defined(DHD_USE_IDLECOUNT) && defined(BCMPCIE)
-	DHD_OS_WD_WAKE_UNLOCK(pub);
-#endif /* !DHD_USE_IDLECOUNT && BCMPCIE */
 }
 
 void *
@@ -7891,43 +7745,23 @@ dhd_os_rxfunlock(dhd_pub_t *pub)
 }
 
 #ifdef DHDTCPACK_SUPPRESS
-unsigned long
+void
 dhd_os_tcpacklock(dhd_pub_t *pub)
 {
 	dhd_info_t *dhd;
-	unsigned long flags = 0;
 
 	dhd = (dhd_info_t *)(pub->info);
+	spin_lock_bh(&dhd->tcpack_lock);
 
-	if (dhd) {
-#ifdef BCMSDIO
-		spin_lock_bh(&dhd->tcpack_lock);
-#else
-		spin_lock_irqsave(&dhd->tcpack_lock, flags);
-#endif /* BCMSDIO */
-	}
-
-	return flags;
 }
 
 void
-dhd_os_tcpackunlock(dhd_pub_t *pub, unsigned long flags)
+dhd_os_tcpackunlock(dhd_pub_t *pub)
 {
 	dhd_info_t *dhd;
 
-#ifdef BCMSDIO
-	BCM_REFERENCE(flags);
-#endif /* BCMSDIO */
-
 	dhd = (dhd_info_t *)(pub->info);
-
-	if (dhd) {
-#ifdef BCMSDIO
-		spin_lock_bh(&dhd->tcpack_lock);
-#else
-		spin_unlock_irqrestore(&dhd->tcpack_lock, flags);
-#endif /* BCMSDIO */
-	}
+	spin_unlock_bh(&dhd->tcpack_lock);
 }
 #endif /* DHDTCPACK_SUPPRESS */
 
@@ -8971,17 +8805,13 @@ int dhd_os_check_wakelock_all(dhd_pub_t *pub)
 	if (dhd && (wake_lock_active(&dhd->wl_wifi) ||
 		wake_lock_active(&dhd->wl_wdwake) ||
 		wake_lock_active(&dhd->wl_rxwake) ||
-#ifdef BCMPCIE_OOB_HOST_WAKE
-		wake_lock_active(&dhd->wl_intrwake) ||
-#endif /* BCMPCIE_OOB_HOST_WAKE */
 		wake_lock_active(&dhd->wl_ctrlwake))) {
-		DHD_ERROR(("%s wakelock_counter %d\n", __FUNCTION__, dhd->wakelock_counter));
 		return 1;
 	}
 #elif defined(BCMSDIO) && (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 36))
 	if (dhd && (dhd->wakelock_counter > 0) && dhd_bus_dev_pm_enabled(pub))
 		return 1;
-#endif /* CONFIG_HAS_WAKELOCK */
+#endif
 	return 0;
 }
 
@@ -9547,15 +9377,14 @@ void dhd_schedule_memdump(dhd_pub_t *dhdp, uint8 *buf, uint32 size)
 	dump->buf = buf;
 	dump->bufsize = size;
 
-#if defined(CONFIG_ARM64)
-	DHD_ERROR(("%s: buf(va)=%llx, buf(pa)=%llx, bufsize=%d\n", __FUNCTION__,
-		(uint64)buf, (uint64)__virt_to_phys((ulong)buf), size));
-#elif defined(__ARM_ARCH_7A__)
+#if defined(__ARM_ARCH_7A__)
 	DHD_ERROR(("%s: buf(va)=%x, buf(pa)=%x, bufsize=%d\n", __FUNCTION__,
 		(uint32)buf, (uint32)__virt_to_phys((ulong)buf), size));
 #endif /* __ARM_ARCH_7A__ */
+
 	if (dhdp->memdump_enabled == DUMP_MEMONLY) {
 		BUG_ON(1);
+
 	}
 
 	dhd_deferred_schedule_work(dhdp->info->dhd_deferred_wq, (void *)dump,
@@ -9573,9 +9402,6 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 
 	if (write_to_file(&dhd->pub, dump->buf, dump->bufsize)) {
 		DHD_ERROR(("%s: writing SoC_RAM dump to the file failed\n", __FUNCTION__));
-	}
-	if (dhd->pub.memdump_enabled == DUMP_MEMFILE_BUGON) {
-		BUG_ON(1);
 	}
 	MFREE(dhd->pub.osh, dump, sizeof(dhd_dump_t));
 }
@@ -9807,16 +9633,8 @@ int dhd_rps_cpus_enable(struct net_device *net, int enable)
 		if (enable) {
 			DHD_INFO(("%s : set rps_cpus as [%s]\n", __FUNCTION__, RPS_CPU_SETBUF));
 			custom_rps_map_set(ifp->net->_rx, RPS_CPU_SETBUF, strlen(RPS_CPU_SETBUF));
-#if defined(DHDTCPACK_SUPPRESS) && defined(BCMPCIE)
-			DHD_TRACE(("%s : set ack suppress. TCPACK_SUP_HOLD.\n", __FUNCTION__));
-			dhd_tcpack_suppress_set(&dhd->pub, TCPACK_SUP_HOLD);
-#endif /* DHDTCPACK_SUPPRESS && BCMPCIE */
 		} else {
 			custom_rps_map_clear(ifp->net->_rx);
-#if defined(DHDTCPACK_SUPPRESS) && defined(BCMPCIE)
-			DHD_TRACE(("%s : clear ack suppress.\n", __FUNCTION__));
-			dhd_tcpack_suppress_set(&dhd->pub, TCPACK_SUP_OFF);
-#endif /* DHDTCPACK_SUPPRESS && BCMPCIE */
 		}
 	} else {
 		DHD_ERROR(("%s : ifp is NULL!!\n", __FUNCTION__));
@@ -9921,10 +9739,6 @@ int argos_register_notifier_init(struct net_device *net)
 
 int argos_register_notifier_deinit(void)
 {
-#if defined(DHDTCPACK_SUPPRESS) && defined(BCMPCIE)
-	dhd_info_t *dhd = DHD_DEV_INFO(argos_rps_ctrl_data.wlan_primary_netdev);
-#endif /* DHDTCPACK_SUPPRESS && BCMPCIE */
-
 	DHD_INFO(("DHD: %s: \n", __FUNCTION__));
 
 	if (argos_rps_ctrl_data.wlan_primary_netdev == NULL) {
@@ -9932,10 +9746,7 @@ int argos_register_notifier_deinit(void)
 		return -1;
 	}
 	custom_rps_map_clear(argos_rps_ctrl_data.wlan_primary_netdev->_rx);
-#if defined(DHDTCPACK_SUPPRESS) && defined(BCMPCIE)
-	DHD_TRACE(("%s : clear ack suppress.\n", __FUNCTION__));
-	dhd_tcpack_suppress_set(&dhd->pub, TCPACK_SUP_OFF);
-#endif /* DHDTCPACK_SUPPRESS && BCMPCIE */
+
 	sec_argos_unregister_notifier(&argos_wifi, "WIFI");
 	argos_rps_ctrl_data.wlan_primary_netdev = NULL;
 	argos_rps_ctrl_data.argos_rps_cpus_enabled = 0;
@@ -9947,10 +9758,6 @@ int argos_status_notifier_wifi_cb(struct notifier_block *notifier,
 	unsigned long speed, void *v)
 {
 	int err = 0;
-#if defined(DHDTCPACK_SUPPRESS) && defined(BCMPCIE)
-	dhd_info_t *dhd = DHD_DEV_INFO(argos_rps_ctrl_data.wlan_primary_netdev);
-#endif /* DHDTCPACK_SUPPRESS && BCMPCIE */
-
 	DHD_INFO(("DHD: %s: , speed=%ld\n", __FUNCTION__, speed));
 	if (speed > RPS_TPUT_THRESHOLD && argos_rps_ctrl_data.wlan_primary_netdev != NULL &&
 		argos_rps_ctrl_data.argos_rps_cpus_enabled == 0) {
@@ -9964,11 +9771,6 @@ int argos_status_notifier_wifi_cb(struct notifier_block *notifier,
 				argos_rps_ctrl_data.argos_rps_cpus_enabled = 1;
 				DHD_ERROR(("DHD: %s: Set RPS_CPUs, speed=%ld\n",
 					__FUNCTION__, speed));
-#if defined(DHDTCPACK_SUPPRESS) && defined(BCMPCIE)
-				DHD_TRACE(("%s : set ack suppress.TCPACK_SUP_HOLD \n",
-					__FUNCTION__));
-				dhd_tcpack_suppress_set(&dhd->pub, TCPACK_SUP_HOLD);
-#endif /* DHDTCPACK_SUPPRESS && BCMPCIE */
 			}
 		} else {
 			DHD_ERROR(("DHD: %s: RPS_Set fail, Core=%d Offline\n", __FUNCTION__,
@@ -9992,6 +9794,7 @@ void dhd_page_corrupt_cb(void *addr_corrupt, size_t len)
 
 	DHD_ERROR(("%s: Got dhd_page_corrupt_cb 0x%p %d\n", __FUNCTION__, addr_corrupt, len));
 
+
 	/* Start the watchdog timer to check file system */
 	DHD_OS_WD_WAKE_LOCK(dhdp);
 	dhd_watchdog_ms = MEMDUMP_WATCHDOG_MS;
@@ -10002,28 +9805,15 @@ void dhd_page_corrupt_cb(void *addr_corrupt, size_t len)
 	dhd_prot_dump_kernel_crash(dhdp);
 	dhd_dump_to_kernelog(dhdp);
 	dhd_bus_mem_dump(dhdp);
-	DHD_OS_WD_WAKE_UNLOCK(&dhdp);
 }
 EXPORT_SYMBOL(dhd_page_corrupt_cb);
 
-#ifdef DHD_PKTID_AUDIT_ENABLED
-void dhd_pktaudit_fail_cb(void)
-{
-	dhd_pub_t *dhdp = g_dhdp;
-	dhd_info_t *dhd = (dhd_info_t *)dhdp->info;
+
 	/* Start the watchdog timer to check file system */
-	DHD_OS_WD_WAKE_LOCK(dhdp);
-	dhd_watchdog_ms = MEMDUMP_WATCHDOG_MS;
-	mod_timer(&dhd->timer, jiffies + msecs_to_jiffies(dhd_watchdog_ms));
-	dhd->wd_timer_valid = TRUE;
 
-	DHD_ERROR(("%s: Got Pkt Id Audit failure \n", __FUNCTION__));
 
-	dhd_bus_mem_dump(dhdp);
 	/* Take the dongle side dump and then BUG_ON() */
-}
 #endif /* DHD_PKTID_AUDIT_ENABLED */
-#endif /* DHD_DEBUG_PAGEALLOC */
 
 #if defined(CUSTOMER_HW4)
 void dhd_force_disable_singlcore_scan(dhd_pub_t *dhd)
@@ -10062,3 +9852,27 @@ void dhd_force_disable_singlcore_scan(dhd_pub_t *dhd)
 	}
 }
 #endif /* CUSTOMER_HW4 */
+
+
+
+
+
+	/*  signal: thread has started */
+
+	/* Run until signal received */
+
+			/* Once you are done with taking the logs
+			 * Call BUG_ON to crash. Note that if
+			 * buzzz_panic was called with 1 then buzzz_crash
+			 * would crash else it won't
+			 */
+
+
+
+
+
+
+
+
+
+

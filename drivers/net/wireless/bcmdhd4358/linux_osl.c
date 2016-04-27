@@ -1,7 +1,7 @@
 /*
  * Linux OS Independent Layer
  *
- * Copyright (C) 1999-2015, Broadcom Corporation
+ * Copyright (C) 1999-2014, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: linux_osl.c 541346 2015-03-16 12:53:21Z $
+ * $Id: linux_osl.c 516842 2014-11-21 03:03:24Z $
  */
 
 #define LINUX_PORT
@@ -54,19 +54,16 @@
 #define DUMPBUFSZ 1024
 
 #ifdef CONFIG_DHD_USE_STATIC_BUF
-#if defined(BCMPCIE) && defined(DHD_USE_STATIC_CTRLBUF)
+#if defined(BCMPCIE) && defined(DHD_USE_STATIC_IOCTLBUF)
 #define DHD_SKB_1PAGE_BUFSIZE	(PAGE_SIZE*1)
 #define DHD_SKB_2PAGE_BUFSIZE	(PAGE_SIZE*2)
 #define DHD_SKB_4PAGE_BUFSIZE	(PAGE_SIZE*4)
-
-#define PREALLOC_FREE_MAGIC	0xFEDC
-#define PREALLOC_USED_MAGIC	0xFCDE
 #else
 #define DHD_SKB_HDRSIZE		336
 #define DHD_SKB_1PAGE_BUFSIZE	((PAGE_SIZE*1)-DHD_SKB_HDRSIZE)
 #define DHD_SKB_2PAGE_BUFSIZE	((PAGE_SIZE*2)-DHD_SKB_HDRSIZE)
 #define DHD_SKB_4PAGE_BUFSIZE	((PAGE_SIZE*4)-DHD_SKB_HDRSIZE)
-#endif /* BCMPCIE && DHD_USE_STATIC_CTRLBUF */
+#endif /* BCMPCIE && DHD_USE_STATIC_IOCTLBUF */
 
 #define STATIC_BUF_MAX_NUM	16
 #define STATIC_BUF_SIZE	(PAGE_SIZE*2)
@@ -80,7 +77,7 @@ typedef struct bcm_static_buf {
 
 static bcm_static_buf_t *bcm_static_buf = 0;
 
-#if defined(BCMPCIE) && defined(DHD_USE_STATIC_CTRLBUF)
+#if defined(BCMPCIE) && defined(DHD_USE_STATIC_IOCTLBUF)
 #define STATIC_PKT_4PAGE_NUM	0
 #define DHD_SKB_MAX_BUFSIZE	DHD_SKB_2PAGE_BUFSIZE
 #elif defined(ENHANCED_STATIC_BUF)
@@ -89,15 +86,15 @@ static bcm_static_buf_t *bcm_static_buf = 0;
 #else
 #define STATIC_PKT_4PAGE_NUM	0
 #define DHD_SKB_MAX_BUFSIZE DHD_SKB_2PAGE_BUFSIZE
-#endif /* BCMPCIE && DHD_USE_STATIC_CTRLBUF */
+#endif /* BCMPCIE && DHD_USE_STATIC_IOCTLBUF */
 
-#if defined(BCMPCIE) && defined(DHD_USE_STATIC_CTRLBUF)
+#if defined(BCMPCIE) && defined(DHD_USE_STATIC_IOCTLBUF)
 #define STATIC_PKT_1PAGE_NUM	0
 #define STATIC_PKT_2PAGE_NUM	64
 #else
 #define STATIC_PKT_1PAGE_NUM	8
 #define STATIC_PKT_2PAGE_NUM	8
-#endif /* BCMPCIE && DHD_USE_STATIC_CTRLBUF */
+#endif /* BCMPCIE && DHD_USE_STATIC_IOCTLBUF */
 
 #define STATIC_PKT_1_2PAGE_NUM	\
 	((STATIC_PKT_1PAGE_NUM) + (STATIC_PKT_2PAGE_NUM))
@@ -105,7 +102,7 @@ static bcm_static_buf_t *bcm_static_buf = 0;
 	((STATIC_PKT_1_2PAGE_NUM) + (STATIC_PKT_4PAGE_NUM))
 
 typedef struct bcm_static_pkt {
-#if defined(BCMPCIE) && defined(DHD_USE_STATIC_CTRLBUF)
+#if defined(BCMPCIE) && defined(DHD_USE_STATIC_IOCTLBUF)
 	struct sk_buff *skb_8k[STATIC_PKT_2PAGE_NUM];
 	unsigned char pkt_invalid[STATIC_PKT_2PAGE_NUM];
 	spinlock_t osl_pkt_lock;
@@ -117,7 +114,7 @@ typedef struct bcm_static_pkt {
 	struct sk_buff *skb_16k;
 #endif /* ENHANCED_STATIC_BUF */
 	struct semaphore osl_pkt_sem;
-#endif /* BCMPCIE && DHD_USE_STATIC_CTRLBUF */
+#endif /* BCMPCIE && DHD_USE_STATIC_IOCTLBUF */
 	unsigned char pkt_use[STATIC_PKT_MAX_NUM];
 } bcm_static_pkt_t;
 
@@ -339,7 +336,7 @@ int osl_static_mem_init(osl_t *osh, void *adapter)
 		bcm_static_buf->buf_ptr = (unsigned char *)bcm_static_buf + STATIC_BUF_SIZE;
 	}
 
-#if defined(BCMPCIE) && !defined(DHD_USE_STATIC_CTRLBUF)
+#if defined(BCMPCIE) && !defined(DHD_USE_STATIC_IOCTLBUF)
 	return 0;
 #else
 	if (!bcm_static_skb && adapter) {
@@ -371,7 +368,7 @@ int osl_static_mem_init(osl_t *osh, void *adapter)
 		sema_init(&bcm_static_skb->osl_pkt_sem, 1);
 #endif /* BCMPCIE */
 	}
-#endif /* BCMPCIE && !DHD_USE_STATIC_CTRLBUF */
+#endif /* BCMPCIE && !DHD_USE_STATIC_IOCTLBUF */
 #endif /* CONFIG_DHD_USE_STATIC_BUF */
 
 	return 0;
@@ -771,22 +768,6 @@ osl_pktfree(osl_t *osh, void *p, bool send)
 
 	PKTDBG_TRACE(osh, (void *) skb, PKTLIST_PKTFREE);
 
-#if defined(BCMPCIE) && defined(CONFIG_DHD_USE_STATIC_BUF)
-	if (skb && (skb->mac_len == PREALLOC_USED_MAGIC)) {
-		printk("%s: pkt %p is from static pool\n",
-			__FUNCTION__, p);
-		dump_stack();
-		return;
-	}
-
-	if (skb && (skb->mac_len == PREALLOC_FREE_MAGIC)) {
-		printk("%s: pkt %p is from static pool and not in used\n",
-			__FUNCTION__, p);
-		dump_stack();
-		return;
-	}
-#endif /* BCMPCIE && CONFIG_DHD_USE_STATIC_BUF */
-
 	/* perversion: we use skb->next to chain multi-skb packets */
 	while (skb) {
 		nskb = skb->next;
@@ -820,9 +801,9 @@ osl_pktget_static(osl_t *osh, uint len)
 {
 	int i = 0;
 	struct sk_buff *skb;
-#if defined(BCMPCIE) && defined(DHD_USE_STATIC_CTRLBUF)
+#if defined(BCMPCIE) && defined(DHD_USE_STATIC_IOCTLBUF)
 	unsigned long flags;
-#endif /* BCMPCIE && DHD_USE_STATIC_CTRLBUF */
+#endif /* BCMPCIE && DHD_USE_STATIC_IOCTLBUF */
 
 	if (!bcm_static_skb)
 		return osl_pktget(osh, len);
@@ -832,7 +813,7 @@ osl_pktget_static(osl_t *osh, uint len)
 		return osl_pktget(osh, len);
 	}
 
-#if defined(BCMPCIE) && defined(DHD_USE_STATIC_CTRLBUF)
+#if defined(BCMPCIE) && defined(DHD_USE_STATIC_IOCTLBUF)
 	spin_lock_irqsave(&bcm_static_skb->osl_pkt_lock, flags);
 
 	if (len <= DHD_SKB_2PAGE_BUFSIZE) {
@@ -857,7 +838,6 @@ osl_pktget_static(osl_t *osh, uint len)
 			skb->priority = 0;
 			skb->tail = skb->data + len;
 			skb->len = len;
-			skb->mac_len = PREALLOC_USED_MAGIC;
 			spin_unlock_irqrestore(&bcm_static_skb->osl_pkt_lock, flags);
 			return skb;
 		}
@@ -922,7 +902,7 @@ osl_pktget_static(osl_t *osh, uint len)
 	}
 #endif /* ENHANCED_STATIC_BUF */
 	up(&bcm_static_skb->osl_pkt_sem);
-#endif /* BCMPCIE && DHD_USE_STATIC_CTRLBUF */
+#endif /* BCMPCIE && DHD_USE_STATIC_IOCTLBUF */
 
 	printk("%s: all static pkt in use!\n", __FUNCTION__);
 	return osl_pktget(osh, len);
@@ -932,10 +912,9 @@ void
 osl_pktfree_static(osl_t *osh, void *p, bool send)
 {
 	int i;
-#if defined(BCMPCIE) && defined(DHD_USE_STATIC_CTRLBUF)
-	struct sk_buff *skb = (struct sk_buff *)p;
+#if defined(BCMPCIE) && defined(DHD_USE_STATIC_IOCTLBUF)
 	unsigned long flags;
-#endif /* BCMPCIE && DHD_USE_STATIC_CTRLBUF */
+#endif /* BCMPCIE && DHD_USE_STATIC_IOCTLBUF */
 
 	if (!p) {
 		return;
@@ -946,27 +925,14 @@ osl_pktfree_static(osl_t *osh, void *p, bool send)
 		return;
 	}
 
-#if defined(BCMPCIE) && defined(DHD_USE_STATIC_CTRLBUF)
+#if defined(BCMPCIE) && defined(DHD_USE_STATIC_IOCTLBUF)
 	spin_lock_irqsave(&bcm_static_skb->osl_pkt_lock, flags);
 
 	for (i = 0; i < STATIC_PKT_2PAGE_NUM; i++) {
 		if (p == bcm_static_skb->skb_8k[i]) {
-			if (bcm_static_skb->pkt_invalid[i] != 0) {
-				printk("%s: static pkt idx %d(%p) is invalid\n",
-					__FUNCTION__, i, p);
-			} else if (bcm_static_skb->pkt_use[i] == 0) {
-				printk("%s: static pkt idx %d(%p) is double free\n",
-					__FUNCTION__, i, p);
-			} else {
-				bcm_static_skb->pkt_use[i] = 0;
+			if (bcm_static_skb->pkt_invalid[i] == 0) {
+			bcm_static_skb->pkt_use[i] = 0;
 			}
-
-			if (skb->mac_len != PREALLOC_USED_MAGIC) {
-				printk("%s: static pkt idx %d(%p) is not in used\n",
-					__FUNCTION__, i, p);
-			}
-
-			skb->mac_len = PREALLOC_FREE_MAGIC;
 			spin_unlock_irqrestore(&bcm_static_skb->osl_pkt_lock, flags);
 			return;
 		}
@@ -1001,20 +967,17 @@ osl_pktfree_static(osl_t *osh, void *p, bool send)
 #endif /* ENHANCED_STATIC_BUF */
 	up(&bcm_static_skb->osl_pkt_sem);
 	osl_pktfree(osh, p, send);
-#endif /* BCMPCIE && DHD_USE_STATIC_CTRLBUF */
+#endif /* BCMPCIE && DHD_USE_STATIC_IOCTLBUF */
 }
-
-#if defined(BCMPCIE) && defined(DHD_USE_STATIC_CTRLBUF)
+#if defined(BCMPCIE) && defined(DHD_USE_STATIC_IOCTLBUF)
 void
 osl_pktinvalidate_static(osl_t *osh, void *p)
 {
 	int i;
 	unsigned long flags;
-
 	if (!bcm_static_skb) {
 		return;
 	}
-
 	spin_lock_irqsave(&bcm_static_skb->osl_pkt_lock, flags);
 	for (i = 0; i < STATIC_PKT_2PAGE_NUM; i++) {
 		if (p == bcm_static_skb->skb_8k[i]) {
@@ -1023,13 +986,12 @@ osl_pktinvalidate_static(osl_t *osh, void *p)
 			break;
 		}
 	}
-
 	if (i == STATIC_PKT_2PAGE_NUM) {
 		printk("%s: pkt=%p isn't static pkt pool\n", __FUNCTION__, p);
 	}
 	spin_unlock_irqrestore(&bcm_static_skb->osl_pkt_lock, flags);
 }
-#endif /* BCMPCIE && DHD_USE_STATIC_CTRLBUF */
+#endif /* BCMPCIE && DHD_USE_STATIC_IOCTLBUF */
 #endif /* CONFIG_DHD_USE_STATIC_BUF */
 
 uint32
@@ -1385,7 +1347,6 @@ osl_cpu_relax(void)
 {
 	cpu_relax();
 }
-
 
 #if defined(USE_KMALLOC_FOR_FLOW_RING) && defined(__ARM_ARCH_7A__)
 

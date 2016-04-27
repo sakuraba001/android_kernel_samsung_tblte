@@ -1,7 +1,7 @@
 /*
  * Platform Dependent file for Samsung Exynos
  *
- * Copyright (C) 1999-2015, Broadcom Corporation
+ * Copyright (C) 1999-2014, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_custom_exynos.c 528707 2015-01-23 05:43:32Z $
+ * $Id: dhd_custom_exynos.c 515700 2014-11-17 07:03:00Z $
  */
 #include <linux/device.h>
 #include <linux/gpio.h>
@@ -458,7 +458,6 @@ void set_cpucore_for_interrupt(cpumask_var_t default_cpu_mask,
 	argos_irq_affinity_setup_label(277, "WIFI", affinity_cpu_mask, default_cpu_mask);
 #endif /* CONFIG_MACH_UNIVERSAL5433 */
 }
-EXPORT_SYMBOL(set_cpucore_for_interrupt);
 #endif /* CONFIG_ARGOS */
 
 void interrupt_set_cpucore(int set)

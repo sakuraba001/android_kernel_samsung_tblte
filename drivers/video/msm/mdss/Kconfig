@@ -84,10 +84,6 @@ config FB_MSM_MDSS_DSI_DBG
 	bool "DSI dbg support"
 	default n
 
-config FB_MSM_MDSS_FENCE_DBG
-	bool "FENCE dbg support"
-	default n
-
 config FB_MSM_CAMERA_CSC
 	default n
 	bool "Support SAMSUNG CAMERA CSC"
@@ -127,6 +123,13 @@ config WACOM_LCD_FREQ_COMPENSATE
 	default n
 	---help---
 		Support wcom freq. calibration LUT
+
+config FB_MSM_MDSS_KCAL_CTRL
+	depends on FB_MSM_MDSS
+	bool "MDSS color control"
+	---help---
+	  Enable sysfs for post-processing control of mdss-mdp5 display
+	  controllers in MDSS.
 
 
 source "drivers/video/msm/mdss/samsung/Kconfig"

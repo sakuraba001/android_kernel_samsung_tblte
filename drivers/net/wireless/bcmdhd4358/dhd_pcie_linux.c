@@ -1,7 +1,7 @@
 /*
  * Linux DHD Bus Module for PCIE
  *
- * Copyright (C) 1999-2015, Broadcom Corporation
+ * Copyright (C) 1999-2014, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_pcie_linux.c 547667 2015-04-09 07:38:00Z $
+ * $Id: dhd_pcie_linux.c 515754 2014-11-17 12:03:25Z $
  */
 
 
@@ -130,7 +130,7 @@ static irqreturn_t dhdpcie_isr(int irq, void *arg);
 /* OS Routine functions for PCI suspend/resume */
 
 static int dhdpcie_pci_suspend(struct pci_dev *dev, pm_message_t state);
-int dhdpcie_set_suspend_resume(struct pci_dev *dev, bool state);
+static int dhdpcie_set_suspend_resume(struct pci_dev *dev, bool state);
 static int dhdpcie_pci_resume(struct pci_dev *dev);
 static int dhdpcie_resume_dev(struct pci_dev *dev);
 static int dhdpcie_suspend_dev(struct pci_dev *dev);
@@ -162,7 +162,7 @@ static struct pci_driver dhdpcie_driver = {
 
 int dhdpcie_init_succeeded = FALSE;
 
-int dhdpcie_set_suspend_resume(struct pci_dev *pdev, bool state)
+static int dhdpcie_set_suspend_resume(struct pci_dev *pdev, bool state)
 {
 	int ret = 0;
 	dhdpcie_info_t *pch = pci_get_drvdata(pdev);
@@ -171,22 +171,6 @@ int dhdpcie_set_suspend_resume(struct pci_dev *pdev, bool state)
 	if (pch) {
 		bus = pch->bus;
 	}
-
-#ifdef DHD_USE_IDLECOUNT
-	mutex_lock(&bus->pm_lock);
-	/* Wake up runtime PM when system PM trigger */
-	if (bus && (bus->suspended == TRUE) && (bus->host_suspend == TRUE)) {
-		if (state == TRUE) {
-			mutex_unlock(&bus->pm_lock);
-			bus_wake(bus);
-			return -EAGAIN;
-		} else {
-			ret = dhdpcie_bus_suspend(bus, state);
-			mutex_unlock(&bus->pm_lock);
-			return ret;
-		}
-	}
-#endif /* DHD_USE_IDLECOUNT */
 
 	/* When firmware is not loaded do the PCI bus */
 	/* suspend/resume only */
@@ -198,9 +182,6 @@ int dhdpcie_set_suspend_resume(struct pci_dev *pdev, bool state)
 		!bus->dhd->dongle_reset) {
 #endif /* CONFIG_MACH_UNIVERSAL5433 */
 			ret = dhdpcie_pci_suspend_resume(bus, state);
-#ifdef DHD_USE_IDLECOUNT
-			mutex_unlock(&bus->pm_lock);
-#endif /* DHD_USE_IDLECOUNT */
 			return ret;
 		}
 
@@ -210,10 +191,6 @@ int dhdpcie_set_suspend_resume(struct pci_dev *pdev, bool state)
 
 		ret = dhdpcie_bus_suspend(bus, state);
 	}
-
-#ifdef DHD_USE_IDLECOUNT
-	mutex_unlock(&bus->pm_lock);
-#endif /* DHD_USE_IDLECOUNT */
 	return ret;
 }
 
@@ -404,7 +381,6 @@ dhdpcie_pci_remove(struct pci_dev *pdev)
 	bus = pch->bus;
 	osh = pch->osh;
 
-	dhdpcie_bus_remove_prep(bus);
 #ifdef SUPPORT_LINKDOWN_RECOVERY
 #ifdef CONFIG_ARCH_MSM
 	if (bus)
@@ -692,9 +668,6 @@ int dhdpcie_init(struct pci_dev *pdev)
 				"due to polling mode\n", __FUNCTION__));
 		}
 
-		/* set private data for pci_dev */
-		pci_set_drvdata(pdev, dhdpcie_info);
-
 		if (dhd_download_fw_on_driverload) {
 			if (dhd_bus_start(bus->dhd)) {
 				DHD_ERROR(("%s: dhd_bud_start() failed\n", __FUNCTION__));
@@ -711,6 +684,9 @@ int dhdpcie_init(struct pci_dev *pdev)
 			bus->dhd->mac.octet[2] = 0x4C;
 		}
 #endif /* CUSTOMER_HW4 */
+
+		/* set private data for pci_dev */
+		pci_set_drvdata(pdev, dhdpcie_info);
 
 		/* Attach to the OS network interface */
 		DHD_TRACE(("%s(): Calling dhd_register_if() \n", __FUNCTION__));
@@ -1118,7 +1094,6 @@ static irqreturn_t wlan_oob_irq(int irq, void *data)
 	dhd_bus_t *bus;
 	DHD_TRACE(("%s: IRQ Triggered\n", __FUNCTION__));
 	bus = (dhd_bus_t *)data;
-	dhdpcie_oob_intr_set(bus, FALSE);
 	if (bus->dhd->up && bus->suspended) {
 		DHD_OS_OOB_IRQ_WAKE_LOCK_TIMEOUT(bus->dhd, OOB_WAKE_LOCK_TIMEOUT);
 	}
