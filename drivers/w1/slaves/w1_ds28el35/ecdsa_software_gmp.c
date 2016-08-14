@@ -1081,4 +1081,5 @@ BOOL decompress_public_key(char *compressed_xy, uchar *manid)
 		return FALSE;
 	}
 }
+
 EXPORT_SYMBOL_GPL(decompress_public_key);

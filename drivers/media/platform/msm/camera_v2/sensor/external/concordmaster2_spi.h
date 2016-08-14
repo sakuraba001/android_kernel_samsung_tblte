@@ -1,4 +1,3 @@
-
 /////////////////////////////////////////////////////////////////////////////////////////
 //		Concord master set file for 2P2 EVT0 BSI - TN Integration
 //		Note some of the Reg's values are the FW default values they are mentioned here to understand more how the system work

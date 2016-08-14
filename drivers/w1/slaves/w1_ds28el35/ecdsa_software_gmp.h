@@ -115,4 +115,5 @@ extern void set_publickey(char *Q_x, char *Q_y, uchar *out_manid);
 extern void set_romid(uchar *rom);
 extern BOOL make_message(unsigned long int * m);
 extern void make_sha256_message(uchar *pg_data, uchar *challenge, int page, unsigned long int *m);
+
 extern BOOL decompress_public_key(char *compressed_xy, uchar *manid);

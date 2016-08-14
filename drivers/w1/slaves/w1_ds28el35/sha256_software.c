@@ -611,5 +611,3 @@ int ComputeSHA256(uchar* message, short length, ushort skipconst, ushort reverse
 	return TRUE;
 }
 EXPORT_SYMBOL_GPL(ComputeSHA256);
-
-
